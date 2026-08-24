@@ -119,7 +119,7 @@ fn test_packed<BE, F, E, T>(
     let output = Indicator::new(4, 0).unwrap();
     let table = [1, 2, 3, 0];
     let map: AffineMap<F> = compile_lut(&input, &output, &table).unwrap();
-    let layout = PackedLayout::for_widths(params.n / 2, map.cols, map.rows).unwrap();
+    let layout = PackedLayout::for_widths(params.n / 2, map.cols(), map.rows()).unwrap();
     let values = (0..layout.block_count())
         .map(|value| value % 4)
         .collect::<Vec<_>>();
@@ -326,8 +326,8 @@ fn test_split<BE, F, E, T>(
     let output = Indicator::new(4, 0).unwrap();
     let table = [3, 2, 1, 0];
     let map: AffineMap<F> = compile_lut(&input, &output, &table).unwrap();
-    let input_width = map.cols;
-    let output_width = map.rows;
+    let input_width = map.cols();
+    let output_width = map.rows();
     let layout = SplitLayout::new(params.n / 2).unwrap();
     let values = (0..layout.slots())
         .map(|value| value % 4)

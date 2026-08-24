@@ -27,24 +27,69 @@ impl<F: BlockScalar> AffineFunction<F> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AffineMap<F> {
-    pub rows: usize,
-    pub cols: usize,
-    pub matrix: Vec<Coefficient<F>>,
-    pub bias: Vec<Coefficient<F>>,
+    rows: usize,
+    cols: usize,
+    matrix: Vec<Coefficient<F>>,
+    bias: Vec<Coefficient<F>>,
 }
 
 impl<F: BlockScalar> AffineMap<F> {
-    pub fn identity(width: usize) -> Self {
-        let mut matrix = vec![Coefficient::zero(); width * width];
+    pub fn new(
+        rows: usize,
+        cols: usize,
+        matrix: Vec<Coefficient<F>>,
+        bias: Vec<Coefficient<F>>,
+    ) -> Result<Self> {
+        ensure!(
+            rows != 0 && cols != 0,
+            "affine map dimensions must be non-zero"
+        );
+        let matrix_len = rows
+            .checked_mul(cols)
+            .ok_or_else(|| anyhow::anyhow!("affine map dimensions overflow usize"))?;
+        ensure!(
+            matrix.len() == matrix_len,
+            "affine matrix storage has length {}, expected {matrix_len}",
+            matrix.len()
+        );
+        ensure!(
+            bias.len() == rows,
+            "affine bias storage has length {}, expected {rows}",
+            bias.len()
+        );
+        Ok(Self {
+            rows,
+            cols,
+            matrix,
+            bias,
+        })
+    }
+
+    pub fn identity(width: usize) -> Result<Self> {
+        let matrix_len = width
+            .checked_mul(width)
+            .ok_or_else(|| anyhow::anyhow!("affine map dimensions overflow usize"))?;
+        let mut matrix = vec![Coefficient::zero(); matrix_len];
         for coordinate in 0..width {
             matrix[coordinate * width + coordinate] = Coefficient::one();
         }
-        Self {
-            rows: width,
-            cols: width,
-            matrix,
-            bias: vec![Coefficient::zero(); width],
-        }
+        Self::new(width, width, matrix, vec![Coefficient::zero(); width])
+    }
+
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    pub fn cols(&self) -> usize {
+        self.cols
+    }
+
+    pub fn matrix(&self) -> &[Coefficient<F>] {
+        &self.matrix
+    }
+
+    pub fn bias(&self) -> &[Coefficient<F>] {
+        &self.bias
     }
 
     pub fn evaluate(&self, input: &[Coefficient<F>]) -> Result<Vec<Coefficient<F>>> {
@@ -84,12 +129,7 @@ impl<F: BlockScalar> AffineMap<F> {
                 }
             }
         }
-        Ok(Self {
-            rows: self.rows,
-            cols: input.cols,
-            matrix,
-            bias,
-        })
+        Self::new(self.rows, input.cols, matrix, bias)
     }
 
     pub fn is_exact(&self) -> bool {
@@ -136,12 +176,7 @@ where
         bias.push(function.bias);
         matrix.extend(function.weights);
     }
-    Ok(AffineMap {
-        rows,
-        cols: input.block_size(),
-        matrix,
-        bias,
-    })
+    AffineMap::new(rows, input.block_size(), matrix, bias)
 }
 
 pub fn compile_lut<F, I, O>(input: &I, output: &O, table: &[usize]) -> Result<AffineMap<F>>
@@ -157,7 +192,7 @@ where
         input.alphabet_size()
     );
     if table.iter().copied().eq(0..table.len()) && same_codebook(input, output)? {
-        return Ok(AffineMap::identity(input.block_size()));
+        return AffineMap::identity(input.block_size());
     }
     let output_values = table
         .iter()

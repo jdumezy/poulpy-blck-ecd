@@ -58,7 +58,6 @@ impl<BE: Backend> PackedAffinePlan<BE> {
             + CnvPVecAlloc<BE>
             + ModuleN,
     {
-        validate_map(map)?;
         ensure!(
             layout.slots() == module.n() / 2,
             "packed layout has {} slots, backend module has {}",
@@ -66,16 +65,16 @@ impl<BE: Backend> PackedAffinePlan<BE> {
             module.n() / 2
         );
         ensure!(
-            map.cols <= layout.block_width() && map.rows <= layout.block_width(),
+            map.cols() <= layout.block_width() && map.rows() <= layout.block_width(),
             "affine map shape {}x{} exceeds packed block width {}",
-            map.rows,
-            map.cols,
+            map.rows(),
+            map.cols(),
             layout.block_width()
         );
 
-        let matrix_meta = effective_meta(&map.matrix, coeffs_meta)?;
-        let bias_meta = effective_meta(&map.bias, coeffs_meta)?;
-        let all_zero = map.matrix.iter().all(is_zero);
+        let matrix_meta = effective_meta(map.matrix(), coeffs_meta)?;
+        let bias_meta = effective_meta(map.bias(), coeffs_meta)?;
+        let all_zero = map.matrix().iter().all(is_zero);
         let identity = is_identity(map);
         let (linear, galois_elements) = if all_zero {
             (PackedLinear::Zero, Vec::new())
@@ -109,8 +108,8 @@ impl<BE: Backend> PackedAffinePlan<BE> {
         let bias = encode_bias(module, layout, map, base2k, bias_meta, scratch)?;
         Ok(Self {
             layout,
-            input_width: map.cols,
-            output_width: map.rows,
+            input_width: map.cols(),
+            output_width: map.rows(),
             linear,
             bias,
             galois_elements,
@@ -257,26 +256,6 @@ where
     }
 }
 
-fn validate_map<F: BlockScalar>(map: &AffineMap<F>) -> Result<()> {
-    ensure!(
-        map.rows != 0 && map.cols != 0,
-        "affine map dimensions must be non-zero"
-    );
-    let matrix_len = map
-        .rows
-        .checked_mul(map.cols)
-        .ok_or_else(|| anyhow::anyhow!("affine map dimensions overflow usize"))?;
-    ensure!(
-        map.matrix.len() == matrix_len,
-        "affine matrix storage has the wrong length"
-    );
-    ensure!(
-        map.bias.len() == map.rows,
-        "affine bias storage has the wrong length"
-    );
-    Ok(())
-}
-
 fn is_zero<F: BlockScalar>(coefficient: &crate::algebra::Coefficient<F>) -> bool {
     let value = (*coefficient).value();
     value.re == F::zero() && value.im == F::zero()
@@ -287,10 +266,10 @@ fn is_one<F: BlockScalar>(coefficient: &crate::algebra::Coefficient<F>) -> bool 
 }
 
 fn is_identity<F: BlockScalar>(map: &AffineMap<F>) -> bool {
-    map.rows == map.cols
-        && (0..map.rows).all(|row| {
-            (0..map.cols).all(|col| {
-                let coefficient = &map.matrix[row * map.cols + col];
+    map.rows() == map.cols()
+        && (0..map.rows()).all(|row| {
+            (0..map.cols()).all(|col| {
+                let coefficient = &map.matrix()[row * map.cols() + col];
                 if row == col {
                     is_one(coefficient)
                 } else {
@@ -335,18 +314,18 @@ fn build_diagonals<F: BlockScalar>(
 ) -> ComplexDiagonals<F> {
     let mut real = Diagonals::new(layout.slots());
     let mut imag = Diagonals::new(layout.slots());
-    for diagonal in -(map.rows as i64 - 1)..map.cols as i64 {
+    for diagonal in -(map.rows() as i64 - 1)..map.cols() as i64 {
         let mut re = vec![F::zero(); layout.slots()];
         let mut im = vec![F::zero(); layout.slots()];
         let mut has_re = false;
         let mut has_im = false;
         for block in 0..layout.block_count() {
-            for row in 0..map.rows {
+            for row in 0..map.rows() {
                 let col = row as i64 + diagonal;
-                if !(0..map.cols as i64).contains(&col) {
+                if !(0..map.cols() as i64).contains(&col) {
                     continue;
                 }
-                let value = map.matrix[row * map.cols + col as usize].value();
+                let value = map.matrix()[row * map.cols() + col as usize].value();
                 let slot = block * layout.block_width() + row;
                 re[slot] = value.re;
                 im[slot] = value.im;
@@ -377,13 +356,13 @@ where
     F: BlockScalar + CKKSEncodingScalar,
     Module<BE>: CKKSModuleAlloc<BE> + CKKSEncodingOps<BE, F> + ModuleN,
 {
-    if map.bias.iter().all(is_zero) {
+    if map.bias().iter().all(is_zero) {
         return Ok(None);
     }
     let mut re = vec![F::zero(); layout.slots()];
     let mut im = vec![F::zero(); layout.slots()];
     for block in 0..layout.block_count() {
-        for (row, coefficient) in map.bias.iter().enumerate() {
+        for (row, coefficient) in map.bias().iter().enumerate() {
             let value = coefficient.value();
             let slot = block * layout.block_width() + row;
             re[slot] = value.re;

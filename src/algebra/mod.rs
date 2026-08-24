@@ -7,6 +7,9 @@ mod poset;
 mod tensor;
 mod zeta;
 
+#[cfg(test)]
+mod tests;
+
 pub use affine::{AffineFunction, AffineMap, compile_coordinates, compile_lut};
 pub use character::{Bru, Lbru, WalshHadamard};
 pub use coefficient::Coefficient;

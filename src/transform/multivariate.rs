@@ -188,7 +188,7 @@ impl<BE: Backend> SplitMultivariatePlan<BE> {
     {
         Ok(Self {
             input_widths: tensor.input_widths().collect(),
-            recipes: feature_recipes(&tensor.input_sizes)?,
+            recipes: feature_recipes(tensor.input_sizes())?,
             output: SplitAffinePlan::compile(
                 module,
                 &tensor.as_affine(),
@@ -448,24 +448,21 @@ where
 
 fn alignment_map<F: BlockScalar>(tensor: &TensorMap<F>, variable: usize) -> Result<AffineMap<F>> {
     let feature_width = tensor.feature_width();
-    let input_width = tensor.input_sizes[variable] - 1;
-    let stride = tensor.input_sizes[variable + 1..].iter().product::<usize>();
+    let input_width = tensor.input_sizes()[variable] - 1;
+    let stride = tensor.input_sizes()[variable + 1..]
+        .iter()
+        .product::<usize>();
     let mut matrix = vec![Coefficient::zero(); feature_width * input_width];
     let mut bias = vec![Coefficient::zero(); feature_width];
     for flat in 1..=feature_width {
-        let digit = (flat / stride) % tensor.input_sizes[variable];
+        let digit = (flat / stride) % tensor.input_sizes()[variable];
         if digit == 0 {
             bias[flat - 1] = Coefficient::one();
         } else {
             matrix[(flat - 1) * input_width + digit - 1] = Coefficient::one();
         }
     }
-    Ok(AffineMap {
-        rows: feature_width,
-        cols: input_width,
-        matrix,
-        bias,
-    })
+    AffineMap::new(feature_width, input_width, matrix, bias)
 }
 
 fn feature_recipes(input_sizes: &[usize]) -> Result<Vec<FeatureRecipe>> {

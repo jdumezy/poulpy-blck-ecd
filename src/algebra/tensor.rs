@@ -5,13 +5,54 @@ use crate::scalar::BlockScalar;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TensorMap<F> {
-    pub input_sizes: Vec<usize>,
-    pub rows: usize,
-    pub matrix: Vec<Coefficient<F>>,
-    pub bias: Vec<Coefficient<F>>,
+    input_sizes: Vec<usize>,
+    rows: usize,
+    matrix: Vec<Coefficient<F>>,
+    bias: Vec<Coefficient<F>>,
 }
 
 impl<F: BlockScalar> TensorMap<F> {
+    pub fn new(
+        input_sizes: Vec<usize>,
+        rows: usize,
+        matrix: Vec<Coefficient<F>>,
+        bias: Vec<Coefficient<F>>,
+    ) -> Result<Self> {
+        ensure!(
+            input_sizes.len() >= 2,
+            "a tensor map needs at least two inputs"
+        );
+        ensure!(
+            input_sizes.iter().all(|&size| size >= 2),
+            "tensor input alphabets must contain at least two values"
+        );
+        ensure!(rows != 0, "tensor map must have at least one output");
+        let feature_width = checked_product(&input_sizes)? - 1;
+        let matrix_len = rows
+            .checked_mul(feature_width)
+            .ok_or_else(|| anyhow::anyhow!("tensor map dimensions overflow usize"))?;
+        ensure!(
+            matrix.len() == matrix_len,
+            "tensor matrix storage has length {}, expected {matrix_len}",
+            matrix.len()
+        );
+        ensure!(
+            bias.len() == rows,
+            "tensor bias storage has length {}, expected {rows}",
+            bias.len()
+        );
+        Ok(Self {
+            input_sizes,
+            rows,
+            matrix,
+            bias,
+        })
+    }
+
+    pub fn input_sizes(&self) -> &[usize] {
+        &self.input_sizes
+    }
+
     pub fn feature_width(&self) -> usize {
         self.input_sizes.iter().product::<usize>() - 1
     }
@@ -20,13 +61,26 @@ impl<F: BlockScalar> TensorMap<F> {
         self.input_sizes.iter().map(|size| size - 1)
     }
 
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    pub fn matrix(&self) -> &[Coefficient<F>] {
+        &self.matrix
+    }
+
+    pub fn bias(&self) -> &[Coefficient<F>] {
+        &self.bias
+    }
+
     pub fn as_affine(&self) -> AffineMap<F> {
-        AffineMap {
-            rows: self.rows,
-            cols: self.feature_width(),
-            matrix: self.matrix.clone(),
-            bias: self.bias.clone(),
-        }
+        AffineMap::new(
+            self.rows,
+            self.feature_width(),
+            self.matrix.clone(),
+            self.bias.clone(),
+        )
+        .expect("validated tensor map produces a valid affine map")
     }
 }
 
@@ -89,12 +143,7 @@ pub fn compile_multivariate_coordinates<F: BlockScalar>(
                 .map(|coefficients| coefficients[output]),
         );
     }
-    Ok(TensorMap {
-        input_sizes,
-        rows,
-        matrix,
-        bias,
-    })
+    TensorMap::new(input_sizes, rows, matrix, bias)
 }
 
 pub fn compile_multivariate_lut<F, O>(

@@ -68,14 +68,13 @@ impl<BE: Backend> SplitAffinePlan<BE> {
         F: BlockScalar + CKKSEncodingScalar,
         Module<BE>: CKKSModuleAlloc<BE> + CKKSEncodingOps<BE, F> + ModuleN,
     {
-        validate_map(map)?;
         let scalar_meta = effective_scalar_meta(map, coeffs_meta)?;
         let mut scalars = Vec::new();
-        let mut rows = Vec::with_capacity(map.rows);
-        for row in 0..map.rows {
+        let mut rows = Vec::with_capacity(map.rows());
+        for row in 0..map.rows() {
             let mut terms = Vec::new();
-            for input in 0..map.cols {
-                let coefficient = map.matrix[row * map.cols + input];
+            for input in 0..map.cols() {
+                let coefficient = map.matrix()[row * map.cols() + input];
                 if coefficient_is_zero(coefficient) {
                     continue;
                 }
@@ -93,8 +92,8 @@ impl<BE: Backend> SplitAffinePlan<BE> {
                     terms.push(SplitTerm::Scalar { input, re, im });
                 }
             }
-            validate_precision(map.bias[row], scalar_meta)?;
-            let (re, im) = scalar_components(map.bias[row], &mut scalars)?;
+            validate_precision(map.bias()[row], scalar_meta)?;
+            let (re, im) = scalar_components(map.bias()[row], &mut scalars)?;
             rows.push(SplitRow {
                 terms,
                 bias: SplitBias { re, im },
@@ -112,7 +111,7 @@ impl<BE: Backend> SplitAffinePlan<BE> {
             scalar_banks.push(plaintext);
         }
         Ok(Self {
-            input_width: map.cols,
+            input_width: map.cols(),
             rows,
             scalar_banks,
             bank_width,
@@ -407,26 +406,6 @@ where
     Ok(())
 }
 
-fn validate_map<F: BlockScalar>(map: &AffineMap<F>) -> Result<()> {
-    ensure!(
-        map.rows != 0 && map.cols != 0,
-        "affine map dimensions must be non-zero"
-    );
-    let matrix_len = map
-        .rows
-        .checked_mul(map.cols)
-        .ok_or_else(|| anyhow::anyhow!("affine map dimensions overflow usize"))?;
-    ensure!(
-        map.matrix.len() == matrix_len,
-        "affine matrix storage has the wrong length"
-    );
-    ensure!(
-        map.bias.len() == map.rows,
-        "affine bias storage has the wrong length"
-    );
-    Ok(())
-}
-
 fn coefficient_is_zero<F: BlockScalar>(coefficient: Coefficient<F>) -> bool {
     let value = coefficient.value();
     value.re == F::zero() && value.im == F::zero()
@@ -482,14 +461,14 @@ fn effective_scalar_meta<F: BlockScalar>(
     let mut all_exact = true;
     let mut exact_log_delta = 0usize;
     for coefficient in map
-        .matrix
+        .matrix()
         .iter()
         .copied()
         .filter(|coefficient| {
             !coefficient_is_zero(*coefficient) && exact_scales(*coefficient).is_none()
         })
         .chain(
-            map.bias
+            map.bias()
                 .iter()
                 .copied()
                 .filter(|coefficient| !coefficient_is_zero(*coefficient)),
