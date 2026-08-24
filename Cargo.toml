@@ -47,7 +47,28 @@ poulpy-cpu-avx512 = { version = "=0.8.2", optional = true }
 poulpy-cpu-arm = { version = "=0.8.2", optional = true }
 
 [dev-dependencies]
+criterion = "0.8"
 poulpy-ckks = { version = "=0.8.2", features = ["test-utils"] }
+
+[[bench]]
+name = "block_ref"
+harness = false
+required-features = ["ref"]
+
+[[bench]]
+name = "block_avx"
+harness = false
+required-features = ["avx"]
+
+[[bench]]
+name = "block_avx512"
+harness = false
+required-features = ["avx512"]
+
+[[bench]]
+name = "block_ifma"
+harness = false
+required-features = ["ifma"]
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

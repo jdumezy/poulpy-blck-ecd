@@ -1,6 +1,6 @@
 use anyhow::{Result, ensure};
 
-use super::{AffineFunction, BlockEncoding, Coefficient, NativeOperation};
+use super::{AffineFunction, BlockEncoding, CleaningMode, Coefficient, NativeOperation};
 use crate::scalar::BlockScalar;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,12 +32,21 @@ impl<F: BlockScalar> BlockEncoding<F> for Indicator {
         self.size
     }
 
-    fn encode(&self, value: usize) -> Result<Vec<Coefficient<F>>> {
+    fn encode_into(&self, value: usize, output: &mut [Coefficient<F>]) -> Result<()> {
         ensure!(value < self.size, "indicator value {value} is out of range");
-        Ok((0..self.size)
+        ensure!(
+            output.len() == self.size - 1,
+            "indicator output has width {}, expected {}",
+            output.len(),
+            self.size - 1
+        );
+        for (slot, coordinate) in (0..self.size)
             .filter(|&coordinate| coordinate != self.omitted)
-            .map(|coordinate| Coefficient::integer(i128::from(coordinate == value)))
-            .collect())
+            .enumerate()
+        {
+            output[slot] = Coefficient::integer(i128::from(coordinate == value));
+        }
+        Ok(())
     }
 
     fn interpolate(&self, values: &[Coefficient<F>]) -> Result<AffineFunction<F>> {
@@ -55,6 +64,14 @@ impl<F: BlockScalar> BlockEncoding<F> for Indicator {
                 .map(|coordinate| values[coordinate] - bias)
                 .collect(),
         })
+    }
+
+    fn cleaning_mode(&self) -> Option<CleaningMode> {
+        Some(CleaningMode::Binary)
+    }
+
+    fn native_operation(&self) -> Option<NativeOperation> {
+        Some(NativeOperation::EqualityGate)
     }
 }
 
@@ -78,14 +95,21 @@ impl<F: BlockScalar> BlockEncoding<F> for Thermometer {
         self.size
     }
 
-    fn encode(&self, value: usize) -> Result<Vec<Coefficient<F>>> {
+    fn encode_into(&self, value: usize, output: &mut [Coefficient<F>]) -> Result<()> {
         ensure!(
             value < self.size,
             "thermometer value {value} is out of range"
         );
-        Ok((1..self.size)
-            .map(|threshold| Coefficient::integer(i128::from(value >= threshold)))
-            .collect())
+        ensure!(
+            output.len() == self.size - 1,
+            "thermometer output has width {}, expected {}",
+            output.len(),
+            self.size - 1
+        );
+        for (coordinate, coefficient) in output.iter_mut().enumerate() {
+            *coefficient = Coefficient::integer(i128::from(value > coordinate));
+        }
+        Ok(())
     }
 
     fn interpolate(&self, values: &[Coefficient<F>]) -> Result<AffineFunction<F>> {
@@ -109,5 +133,9 @@ impl<F: BlockScalar> BlockEncoding<F> for Thermometer {
 
     fn native_product(&self, lhs: usize, rhs: usize) -> Option<usize> {
         (lhs < self.size && rhs < self.size).then_some(lhs.min(rhs))
+    }
+
+    fn cleaning_mode(&self) -> Option<CleaningMode> {
+        Some(CleaningMode::Binary)
     }
 }

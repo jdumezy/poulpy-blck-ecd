@@ -34,6 +34,19 @@ pub struct AffineMap<F> {
 }
 
 impl<F: BlockScalar> AffineMap<F> {
+    pub fn identity(width: usize) -> Self {
+        let mut matrix = vec![Coefficient::zero(); width * width];
+        for coordinate in 0..width {
+            matrix[coordinate * width + coordinate] = Coefficient::one();
+        }
+        Self {
+            rows: width,
+            cols: width,
+            matrix,
+            bias: vec![Coefficient::zero(); width],
+        }
+    }
+
     pub fn evaluate(&self, input: &[Coefficient<F>]) -> Result<Vec<Coefficient<F>>> {
         ensure!(
             input.len() == self.cols,
@@ -93,7 +106,7 @@ pub fn compile_coordinates<F, I>(
 ) -> Result<AffineMap<F>>
 where
     F: BlockScalar,
-    I: BlockEncoding<F>,
+    I: BlockEncoding<F> + ?Sized,
 {
     let alphabet_size = input.alphabet_size();
     ensure!(
@@ -134,8 +147,8 @@ where
 pub fn compile_lut<F, I, O>(input: &I, output: &O, table: &[usize]) -> Result<AffineMap<F>>
 where
     F: BlockScalar,
-    I: BlockEncoding<F>,
-    O: BlockEncoding<F>,
+    I: BlockEncoding<F> + ?Sized,
+    O: BlockEncoding<F> + ?Sized,
 {
     ensure!(
         table.len() == input.alphabet_size(),
@@ -143,6 +156,9 @@ where
         table.len(),
         input.alphabet_size()
     );
+    if table.iter().copied().eq(0..table.len()) && same_codebook(input, output)? {
+        return Ok(AffineMap::identity(input.block_size()));
+    }
     let output_values = table
         .iter()
         .map(|&value| {
@@ -155,4 +171,26 @@ where
         })
         .collect::<Result<Vec<_>>>()?;
     compile_coordinates(input, &output_values)
+}
+
+fn same_codebook<F, I, O>(input: &I, output: &O) -> Result<bool>
+where
+    F: BlockScalar,
+    I: BlockEncoding<F> + ?Sized,
+    O: BlockEncoding<F> + ?Sized,
+{
+    if input.alphabet_size() != output.alphabet_size() || input.block_size() != output.block_size()
+    {
+        return Ok(false);
+    }
+    let mut input_word = vec![Coefficient::zero(); input.block_size()];
+    let mut output_word = vec![Coefficient::zero(); output.block_size()];
+    for value in 0..input.alphabet_size() {
+        input.encode_into(value, &mut input_word)?;
+        output.encode_into(value, &mut output_word)?;
+        if input_word != output_word {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }

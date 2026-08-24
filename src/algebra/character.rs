@@ -1,6 +1,6 @@
 use anyhow::{Result, ensure};
 
-use super::{AffineFunction, BlockEncoding, Coefficient, NativeOperation};
+use super::{AffineFunction, BlockEncoding, CleaningMode, Coefficient, NativeOperation};
 use crate::scalar::BlockScalar;
 
 fn root_of_unity<F: BlockScalar>(order: usize, exponent: i128) -> Coefficient<F> {
@@ -54,11 +54,18 @@ impl<F: BlockScalar> BlockEncoding<F> for Bru {
         self.modulus
     }
 
-    fn encode(&self, value: usize) -> Result<Vec<Coefficient<F>>> {
+    fn encode_into(&self, value: usize, output: &mut [Coefficient<F>]) -> Result<()> {
         ensure!(value < self.modulus, "BRU value {value} is out of range");
-        Ok((1..self.modulus)
-            .map(|k| root_of_unity(self.modulus, (k * value) as i128))
-            .collect())
+        ensure!(
+            output.len() == self.modulus - 1,
+            "BRU output has width {}, expected {}",
+            output.len(),
+            self.modulus - 1
+        );
+        for (coordinate, coefficient) in output.iter_mut().enumerate() {
+            *coefficient = root_of_unity(self.modulus, ((coordinate + 1) * value) as i128);
+        }
+        Ok(())
     }
 
     fn interpolate(&self, values: &[Coefficient<F>]) -> Result<AffineFunction<F>> {
@@ -145,18 +152,24 @@ impl<F: BlockScalar> BlockEncoding<F> for Lbru {
         self.prime
     }
 
-    fn encode(&self, value: usize) -> Result<Vec<Coefficient<F>>> {
+    fn encode_into(&self, value: usize, output: &mut [Coefficient<F>]) -> Result<()> {
         ensure!(value < self.prime, "LBRU value {value} is out of range");
+        ensure!(
+            output.len() == self.prime - 1,
+            "LBRU output has width {}, expected {}",
+            output.len(),
+            self.prime - 1
+        );
         if value == 0 {
-            return Ok(vec![Coefficient::zero(); self.prime - 1]);
+            output.fill(Coefficient::zero());
+            return Ok(());
         }
         let logarithm = self.logarithms[value];
-        let mut encoded = Vec::with_capacity(self.prime - 1);
-        encoded.push(Coefficient::one());
-        encoded.extend(
-            (1..self.prime - 1).map(|k| root_of_unity(self.prime - 1, (k * logarithm) as i128)),
-        );
-        Ok(encoded)
+        output[0] = Coefficient::one();
+        for (coordinate, coefficient) in output.iter_mut().enumerate().skip(1) {
+            *coefficient = root_of_unity(self.prime - 1, (coordinate * logarithm) as i128);
+        }
+        Ok(())
     }
 
     fn interpolate(&self, values: &[Coefficient<F>]) -> Result<AffineFunction<F>> {
@@ -212,20 +225,26 @@ impl<F: BlockScalar> BlockEncoding<F> for WalshHadamard {
         self.size
     }
 
-    fn encode(&self, value: usize) -> Result<Vec<Coefficient<F>>> {
+    fn encode_into(&self, value: usize, output: &mut [Coefficient<F>]) -> Result<()> {
         ensure!(
             value < self.size,
             "Walsh-Hadamard value {value} is out of range"
         );
-        Ok((1..self.size)
-            .map(|mask| {
-                Coefficient::integer(if (mask & value).count_ones().is_multiple_of(2) {
-                    1
-                } else {
-                    -1
-                })
-            })
-            .collect())
+        ensure!(
+            output.len() == self.size - 1,
+            "Walsh-Hadamard output has width {}, expected {}",
+            output.len(),
+            self.size - 1
+        );
+        for (coordinate, coefficient) in output.iter_mut().enumerate() {
+            let mask = coordinate + 1;
+            *coefficient = Coefficient::integer(if (mask & value).count_ones().is_multiple_of(2) {
+                1
+            } else {
+                -1
+            });
+        }
+        Ok(())
     }
 
     fn interpolate(&self, values: &[Coefficient<F>]) -> Result<AffineFunction<F>> {
@@ -256,6 +275,10 @@ impl<F: BlockScalar> BlockEncoding<F> for WalshHadamard {
 
     fn native_product(&self, lhs: usize, rhs: usize) -> Option<usize> {
         (lhs < self.size && rhs < self.size).then_some(lhs ^ rhs)
+    }
+
+    fn cleaning_mode(&self) -> Option<CleaningMode> {
+        Some(CleaningMode::Sign)
     }
 }
 

@@ -11,6 +11,13 @@ pub enum NativeOperation {
     Min,
     Meet,
     Join,
+    EqualityGate,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CleaningMode {
+    Binary,
+    Sign,
 }
 
 pub trait BlockEncoding<F: BlockScalar> {
@@ -20,7 +27,13 @@ pub trait BlockEncoding<F: BlockScalar> {
         self.alphabet_size() - 1
     }
 
-    fn encode(&self, value: usize) -> Result<Vec<Coefficient<F>>>;
+    fn encode(&self, value: usize) -> Result<Vec<Coefficient<F>>> {
+        let mut output = vec![Coefficient::zero(); self.block_size()];
+        self.encode_into(value, &mut output)?;
+        Ok(output)
+    }
+
+    fn encode_into(&self, value: usize, output: &mut [Coefficient<F>]) -> Result<()>;
 
     fn interpolate(&self, values: &[Coefficient<F>]) -> Result<AffineFunction<F>>;
 
@@ -29,6 +42,10 @@ pub trait BlockEncoding<F: BlockScalar> {
     }
 
     fn native_product(&self, _lhs: usize, _rhs: usize) -> Option<usize> {
+        None
+    }
+
+    fn cleaning_mode(&self) -> Option<CleaningMode> {
         None
     }
 

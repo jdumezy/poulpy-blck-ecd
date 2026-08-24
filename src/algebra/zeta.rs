@@ -1,6 +1,8 @@
 use anyhow::{Result, ensure};
 
-use super::{AffineFunction, BlockEncoding, Coefficient, FinitePoset, NativeOperation};
+use super::{
+    AffineFunction, BlockEncoding, CleaningMode, Coefficient, FinitePoset, NativeOperation,
+};
 use crate::scalar::BlockScalar;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,15 +51,24 @@ impl<F: BlockScalar> BlockEncoding<F> for MeetZeta {
         self.poset.size()
     }
 
-    fn encode(&self, value: usize) -> Result<Vec<Coefficient<F>>> {
+    fn encode_into(&self, value: usize, output: &mut [Coefficient<F>]) -> Result<()> {
         ensure!(
             value < self.poset.size(),
             "meet-zeta value {value} is out of range"
         );
-        Ok((0..self.poset.size())
+        ensure!(
+            output.len() == self.poset.size() - 1,
+            "meet-zeta output has width {}, expected {}",
+            output.len(),
+            self.poset.size() - 1
+        );
+        for (slot, coordinate) in (0..self.poset.size())
             .filter(|&coordinate| coordinate != self.bottom)
-            .map(|coordinate| Coefficient::integer(i128::from(self.poset.leq(coordinate, value))))
-            .collect())
+            .enumerate()
+        {
+            output[slot] = Coefficient::integer(i128::from(self.poset.leq(coordinate, value)));
+        }
+        Ok(())
     }
 
     fn interpolate(&self, values: &[Coefficient<F>]) -> Result<AffineFunction<F>> {
@@ -91,6 +102,10 @@ impl<F: BlockScalar> BlockEncoding<F> for MeetZeta {
     fn native_product(&self, lhs: usize, rhs: usize) -> Option<usize> {
         (lhs < self.poset.size() && rhs < self.poset.size())
             .then_some(self.product[lhs * self.poset.size() + rhs])
+    }
+
+    fn cleaning_mode(&self) -> Option<CleaningMode> {
+        Some(CleaningMode::Binary)
     }
 }
 
@@ -136,15 +151,24 @@ impl<F: BlockScalar> BlockEncoding<F> for JoinZeta {
         self.poset.size()
     }
 
-    fn encode(&self, value: usize) -> Result<Vec<Coefficient<F>>> {
+    fn encode_into(&self, value: usize, output: &mut [Coefficient<F>]) -> Result<()> {
         ensure!(
             value < self.poset.size(),
             "join-zeta value {value} is out of range"
         );
-        Ok((0..self.poset.size())
+        ensure!(
+            output.len() == self.poset.size() - 1,
+            "join-zeta output has width {}, expected {}",
+            output.len(),
+            self.poset.size() - 1
+        );
+        for (slot, coordinate) in (0..self.poset.size())
             .filter(|&coordinate| coordinate != self.top)
-            .map(|coordinate| Coefficient::integer(i128::from(self.poset.leq(value, coordinate))))
-            .collect())
+            .enumerate()
+        {
+            output[slot] = Coefficient::integer(i128::from(self.poset.leq(value, coordinate)));
+        }
+        Ok(())
     }
 
     fn interpolate(&self, values: &[Coefficient<F>]) -> Result<AffineFunction<F>> {
@@ -178,5 +202,9 @@ impl<F: BlockScalar> BlockEncoding<F> for JoinZeta {
     fn native_product(&self, lhs: usize, rhs: usize) -> Option<usize> {
         (lhs < self.poset.size() && rhs < self.poset.size())
             .then_some(self.product[lhs * self.poset.size() + rhs])
+    }
+
+    fn cleaning_mode(&self) -> Option<CleaningMode> {
+        Some(CleaningMode::Binary)
     }
 }
