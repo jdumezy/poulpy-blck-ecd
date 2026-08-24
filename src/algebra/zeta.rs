@@ -1,0 +1,182 @@
+use anyhow::{Result, ensure};
+
+use super::{AffineFunction, BlockEncoding, Coefficient, FinitePoset, NativeOperation};
+use crate::scalar::BlockScalar;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MeetZeta {
+    poset: FinitePoset,
+    bottom: usize,
+    mobius: Vec<i128>,
+    product: Vec<usize>,
+}
+
+impl MeetZeta {
+    pub fn new(poset: FinitePoset) -> Result<Self> {
+        let bottom = poset
+            .bottom()
+            .ok_or_else(|| anyhow::anyhow!("meet-zeta poset has no bottom element"))?;
+        let mobius = poset.mobius()?;
+        let product = poset.meet_table()?;
+        Ok(Self {
+            poset,
+            bottom,
+            mobius,
+            product,
+        })
+    }
+
+    pub fn boolean(bits: usize) -> Result<Self> {
+        Self::new(FinitePoset::boolean_lattice(bits)?)
+    }
+
+    pub fn ancestor(parents: &[Option<usize>]) -> Result<Self> {
+        Self::new(FinitePoset::rooted_tree(parents)?)
+    }
+
+    pub fn divisors(modulus: usize) -> Result<(Self, Vec<usize>)> {
+        let (poset, divisors) = FinitePoset::divisor_lattice(modulus)?;
+        Ok((Self::new(poset)?, divisors))
+    }
+
+    pub fn poset(&self) -> &FinitePoset {
+        &self.poset
+    }
+}
+
+impl<F: BlockScalar> BlockEncoding<F> for MeetZeta {
+    fn alphabet_size(&self) -> usize {
+        self.poset.size()
+    }
+
+    fn encode(&self, value: usize) -> Result<Vec<Coefficient<F>>> {
+        ensure!(
+            value < self.poset.size(),
+            "meet-zeta value {value} is out of range"
+        );
+        Ok((0..self.poset.size())
+            .filter(|&coordinate| coordinate != self.bottom)
+            .map(|coordinate| Coefficient::integer(i128::from(self.poset.leq(coordinate, value))))
+            .collect())
+    }
+
+    fn interpolate(&self, values: &[Coefficient<F>]) -> Result<AffineFunction<F>> {
+        ensure!(
+            values.len() == self.poset.size(),
+            "function has {} values, expected {}",
+            values.len(),
+            self.poset.size()
+        );
+        let coefficient = |coordinate: usize| {
+            (0..self.poset.size())
+                .filter(|&value| self.poset.leq(value, coordinate))
+                .fold(Coefficient::zero(), |acc, value| {
+                    acc + values[value]
+                        .scale_integer(self.mobius[value * self.poset.size() + coordinate])
+                })
+        };
+        Ok(AffineFunction {
+            bias: coefficient(self.bottom),
+            weights: (0..self.poset.size())
+                .filter(|&coordinate| coordinate != self.bottom)
+                .map(coefficient)
+                .collect(),
+        })
+    }
+
+    fn native_operation(&self) -> Option<NativeOperation> {
+        Some(NativeOperation::Meet)
+    }
+
+    fn native_product(&self, lhs: usize, rhs: usize) -> Option<usize> {
+        (lhs < self.poset.size() && rhs < self.poset.size())
+            .then_some(self.product[lhs * self.poset.size() + rhs])
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JoinZeta {
+    poset: FinitePoset,
+    top: usize,
+    mobius: Vec<i128>,
+    product: Vec<usize>,
+}
+
+impl JoinZeta {
+    pub fn new(poset: FinitePoset) -> Result<Self> {
+        let top = poset
+            .top()
+            .ok_or_else(|| anyhow::anyhow!("join-zeta poset has no top element"))?;
+        let mobius = poset.mobius()?;
+        let product = poset.join_table()?;
+        Ok(Self {
+            poset,
+            top,
+            mobius,
+            product,
+        })
+    }
+
+    pub fn boolean(bits: usize) -> Result<Self> {
+        Self::new(FinitePoset::boolean_lattice(bits)?)
+    }
+
+    pub fn divisors(modulus: usize) -> Result<(Self, Vec<usize>)> {
+        let (poset, divisors) = FinitePoset::divisor_lattice(modulus)?;
+        Ok((Self::new(poset)?, divisors))
+    }
+
+    pub fn poset(&self) -> &FinitePoset {
+        &self.poset
+    }
+}
+
+impl<F: BlockScalar> BlockEncoding<F> for JoinZeta {
+    fn alphabet_size(&self) -> usize {
+        self.poset.size()
+    }
+
+    fn encode(&self, value: usize) -> Result<Vec<Coefficient<F>>> {
+        ensure!(
+            value < self.poset.size(),
+            "join-zeta value {value} is out of range"
+        );
+        Ok((0..self.poset.size())
+            .filter(|&coordinate| coordinate != self.top)
+            .map(|coordinate| Coefficient::integer(i128::from(self.poset.leq(value, coordinate))))
+            .collect())
+    }
+
+    fn interpolate(&self, values: &[Coefficient<F>]) -> Result<AffineFunction<F>> {
+        ensure!(
+            values.len() == self.poset.size(),
+            "function has {} values, expected {}",
+            values.len(),
+            self.poset.size()
+        );
+        let coefficient = |coordinate: usize| {
+            (0..self.poset.size())
+                .filter(|&value| self.poset.leq(coordinate, value))
+                .fold(Coefficient::zero(), |acc, value| {
+                    acc + values[value]
+                        .scale_integer(self.mobius[coordinate * self.poset.size() + value])
+                })
+        };
+        Ok(AffineFunction {
+            bias: coefficient(self.top),
+            weights: (0..self.poset.size())
+                .filter(|&coordinate| coordinate != self.top)
+                .map(coefficient)
+                .collect(),
+        })
+    }
+
+    fn native_operation(&self) -> Option<NativeOperation> {
+        Some(NativeOperation::Join)
+    }
+
+    fn native_product(&self, lhs: usize, rhs: usize) -> Option<usize> {
+        (lhs < self.poset.size() && rhs < self.poset.size())
+            .then_some(self.product[lhs * self.poset.size() + rhs])
+    }
+}

@@ -1,0 +1,53 @@
+[package]
+name = "poulpy-blck-ecd"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Block encodings for discrete CKKS over Poulpy"
+autobenches = false
+
+[features]
+default = []
+test-utils = ["poulpy-ckks/test-utils"]
+ref = [
+    "dep:poulpy-cpu-ref",
+    "poulpy-cpu-ref/enable-ckks",
+]
+avx = [
+    "dep:poulpy-cpu-avx",
+    "poulpy-cpu-avx/enable-avx",
+    "poulpy-cpu-avx/enable-ckks",
+]
+avx512 = [
+    "dep:poulpy-cpu-avx512",
+    "poulpy-cpu-avx512/enable-avx512f",
+    "poulpy-cpu-avx512/enable-ckks",
+]
+ifma = [
+    "avx512",
+    "poulpy-cpu-avx512/enable-ifma",
+]
+neon = [
+    "dep:poulpy-cpu-arm",
+    "poulpy-cpu-arm/enable-neon",
+    "poulpy-cpu-arm/enable-ckks",
+]
+all-x86-backends = ["ref", "avx", "avx512", "ifma"]
+
+[dependencies]
+anyhow = "1"
+num-complex = "0.4"
+num-traits = "0.2"
+poulpy-ckks = "=0.8.2"
+poulpy-core = "=0.8.2"
+poulpy-hal = "=0.8.2"
+poulpy-cpu-ref = { version = "=0.8.2", optional = true }
+poulpy-cpu-avx = { version = "=0.8.2", optional = true }
+poulpy-cpu-avx512 = { version = "=0.8.2", optional = true }
+poulpy-cpu-arm = { version = "=0.8.2", optional = true }
+
+[dev-dependencies]
+poulpy-ckks = { version = "=0.8.2", features = ["test-utils"] }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
