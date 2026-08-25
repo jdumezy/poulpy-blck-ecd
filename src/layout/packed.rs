@@ -8,10 +8,16 @@ use crate::{algebra::BlockEncoding, scalar::BlockScalar};
 pub struct PackedLayout {
     slots: usize,
     block_width: usize,
+    lane_width: usize,
+    interleaved: bool,
 }
 
 impl PackedLayout {
     pub fn new(slots: usize, block_width: usize) -> Result<Self> {
+        Self::interleaved(slots, block_width)
+    }
+
+    pub fn interleaved(slots: usize, block_width: usize) -> Result<Self> {
         ensure!(
             slots.is_power_of_two(),
             "packed slot count must be a power of two"
@@ -21,7 +27,32 @@ impl PackedLayout {
             block_width <= slots,
             "packed block width {block_width} exceeds {slots} slots"
         );
-        Ok(Self { slots, block_width })
+        let lane_width = block_width.next_power_of_two();
+        Ok(Self {
+            slots,
+            block_width,
+            lane_width,
+            interleaved: true,
+        })
+    }
+
+    /// Block-major packing without power-of-two padding.
+    pub fn contiguous(slots: usize, block_width: usize) -> Result<Self> {
+        ensure!(
+            slots.is_power_of_two(),
+            "packed slot count must be a power of two"
+        );
+        ensure!(block_width != 0, "packed block width must be non-zero");
+        ensure!(
+            block_width <= slots,
+            "packed block width {block_width} exceeds {slots} slots"
+        );
+        Ok(Self {
+            slots,
+            block_width,
+            lane_width: block_width,
+            interleaved: false,
+        })
     }
 
     pub fn for_widths(slots: usize, input_width: usize, output_width: usize) -> Result<Self> {
@@ -40,12 +71,42 @@ impl PackedLayout {
         self.block_width
     }
 
+    /// Power-of-two coordinate lane count used by interleaved layouts.
+    pub fn lane_width(&self) -> usize {
+        self.lane_width
+    }
+
+    pub fn is_interleaved(&self) -> bool {
+        self.interleaved
+    }
+
     pub fn block_count(&self) -> usize {
-        self.slots / self.block_width
+        self.slots
+            / if self.interleaved {
+                self.lane_width
+            } else {
+                self.block_width
+            }
     }
 
     pub fn used_slots(&self) -> usize {
         self.block_count() * self.block_width
+    }
+
+    pub fn slot(&self, block: usize, coordinate: usize) -> usize {
+        assert!(
+            block < self.block_count(),
+            "packed block index out of range"
+        );
+        assert!(
+            coordinate < self.block_width,
+            "packed coordinate out of range"
+        );
+        if self.interleaved {
+            coordinate * self.block_count() + block
+        } else {
+            block * self.block_width + coordinate
+        }
     }
 
     pub fn encode_slots<F, E>(&self, encoding: &E, values: &[usize]) -> Result<PackedSlots<F>>
@@ -105,7 +166,7 @@ impl PackedLayout {
         for (block, &value) in values.iter().enumerate() {
             encoding.encode_into(value, &mut word)?;
             for (coordinate, &coefficient) in word.iter().enumerate() {
-                let slot = block * self.block_width + coordinate;
+                let slot = self.slot(block, coordinate);
                 let coefficient = coefficient.value();
                 slots.re[slot] = coefficient.re;
                 slots.im[slot] = coefficient.im;
@@ -141,10 +202,10 @@ impl PackedLayout {
         let codewords = codewords(encoding)?;
         (0..count)
             .map(|block| {
-                let start = block * self.block_width;
                 let value = (0..encoding.block_size())
                     .map(|coordinate| {
-                        Complex::new(slots.re[start + coordinate], slots.im[start + coordinate])
+                        let slot = self.slot(block, coordinate);
+                        Complex::new(slots.re[slot], slots.im[slot])
                     })
                     .collect::<Vec<_>>();
                 nearest(&value, &codewords)

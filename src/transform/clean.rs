@@ -7,7 +7,7 @@ use poulpy_ckks::{
 use poulpy_core::{
     GLWEBytesOf,
     layouts::{
-        GGLWEInfos, GLWEToBackendMut, GLWEToBackendRef,
+        GGLWEInfos, GLWEToBackendMut, GLWEToBackendRef, LWEInfos,
         prepared::{GGLWEPreparedToBackendRef, GLWETensorKeyPreparedToBackendRef},
     },
 };
@@ -88,9 +88,29 @@ where
         Src: GLWEToBackendRef<BE> + CKKSCtBounds,
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>,
     {
+        let base2k = input.base2k().as_usize();
+        let level_drop = input.log_delta().div_ceil(base2k) * base2k;
+        ensure!(
+            input.k().as_usize() > 2 * level_drop,
+            "cleaning needs two radix levels after its input"
+        );
         scratch.scope(|local| {
             let (mut square, mut local) = local.take_ckks_ciphertext_scratch(input, input.meta());
+            square.set_k(
+                square
+                    .k()
+                    .as_usize()
+                    .min(input.k().as_usize() - level_drop)
+                    .into(),
+            );
             self.ckks_square_into(&mut square, input, tensor_key, &mut local)?;
+            output.set_k(
+                output
+                    .k()
+                    .as_usize()
+                    .min(square.k().as_usize() - level_drop)
+                    .into(),
+            );
             self.ckks_mul_into(output, &square, input, tensor_key, &mut local)?;
             self.ckks_neg_assign(output)?;
             match mode {

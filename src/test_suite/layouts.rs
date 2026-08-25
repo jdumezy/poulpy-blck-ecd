@@ -603,7 +603,7 @@ fn test_multivariate_and_cleaning<BE, F, E, T>(
     let noise = F::from_f64(0.02).unwrap();
     for block in 0..clean_layout.block_count() {
         for coordinate in 0..3 {
-            let slot = block * clean_layout.block_width() + coordinate;
+            let slot = clean_layout.slot(block, coordinate);
             noisy_slots.re[slot] = if noisy_slots.re[slot] == F::zero() {
                 noise
             } else {

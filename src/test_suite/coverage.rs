@@ -240,7 +240,7 @@ pub fn test_characters<BE, F, E>(
     let noise = F::from_f64(0.02).unwrap();
     for block in 0..layout.block_count() {
         for coordinate in 0..walsh_width {
-            let slot = block * layout.block_width() + coordinate;
+            let slot = layout.slot(block, coordinate);
             noisy.re[slot] = if noisy.re[slot] > F::zero() {
                 noisy.re[slot] - noise
             } else {

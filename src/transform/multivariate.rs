@@ -4,7 +4,8 @@ use anyhow::{Result, ensure};
 use poulpy_ckks::{
     CKKSAtkBounds, CKKSCtBounds, CoeffsMeta, SetCKKSInfos,
     api::{
-        CKKSCopyOps, CKKSEncodingOps, CKKSEncodingScalar, CKKSLinearTransformationOps, CKKSMulOps,
+        CKKSAddOps, CKKSCopyOps, CKKSEncodingOps, CKKSEncodingScalar, CKKSLinearTransformationOps,
+        CKKSMulOps, CKKSRotateOps,
     },
     layouts::{CKKSCiphertextOwned, CKKSModuleAlloc, ScratchArenaTakeCKKS},
 };
@@ -12,12 +13,13 @@ use poulpy_core::{
     GLWEBytesOf,
     layouts::{
         GGLWEInfos, GLWEAutomorphismKeyHelper, GLWEInfos, GLWEToBackendMut, GLWEToBackendRef,
+        LWEInfos,
         prepared::{GGLWEPreparedToBackendRef, GLWETensorKeyPreparedToBackendRef},
     },
 };
 use poulpy_hal::{
     api::{CnvPVecAlloc, ModuleN},
-    layouts::{Backend, Module, ScratchArena},
+    layouts::{Backend, Module, ScratchArena, galois_elements_from_rotations},
 };
 
 use super::{
@@ -34,8 +36,11 @@ pub struct PackedMultivariatePlan<BE: Backend> {
     layout: PackedLayout,
     input_widths: Vec<usize>,
     alignments: Vec<PackedAffinePlan<BE>>,
+    alignment_rotations: Vec<Vec<i64>>,
     output: PackedAffinePlan<BE>,
     galois_elements: Vec<i64>,
+    alignment_drop: usize,
+    output_drop: usize,
 }
 
 impl<BE: Backend> PackedMultivariatePlan<BE> {
@@ -65,42 +70,83 @@ impl<BE: Backend> PackedMultivariatePlan<BE> {
             layout.block_width()
         );
         let input_widths = tensor.input_widths().collect::<Vec<_>>();
+        let full_feature_width = feature_width + 1;
+        let factor_spreads = layout.is_interleaved()
+            && full_feature_width == layout.lane_width()
+            && tensor
+                .input_sizes()
+                .iter()
+                .all(|size| size.is_power_of_two());
+        let transform_layout = if factor_spreads {
+            PackedLayout::interleaved(layout.slots(), full_feature_width)?
+        } else {
+            layout
+        };
         let mut alignments = Vec::with_capacity(input_widths.len());
+        let mut alignment_rotations = Vec::with_capacity(input_widths.len());
         for variable in 0..input_widths.len() {
-            let alignment = alignment_map(tensor, variable)?;
-            alignments.push(PackedAffinePlan::compile(
+            let alignment = if factor_spreads {
+                factorized_alignment_seed(tensor, variable)?
+            } else {
+                alignment_map(tensor, variable)?
+            };
+            let alignment = PackedAffinePlan::compile(
                 module,
-                layout,
+                transform_layout,
                 &alignment,
                 base2k,
                 alignment_meta,
                 strategy,
                 scratch,
-            )?);
+            )?;
+            alignments.push(if factor_spreads {
+                alignment.without_radix_drop()
+            } else {
+                alignment
+            });
+            alignment_rotations.push(if factor_spreads {
+                factorized_alignment_rotations(tensor, variable, transform_layout)
+            } else {
+                Vec::new()
+            });
         }
+        let output_map = if factor_spreads {
+            augmented_output_map(tensor)?
+        } else {
+            tensor.as_affine()
+        };
         let output = PackedAffinePlan::compile(
             module,
-            layout,
-            &tensor.as_affine(),
+            transform_layout,
+            &output_map,
             base2k,
             output_meta,
             strategy,
             scratch,
         )?;
-        let galois_elements = alignments
+        let output_drop = output.radix_drop();
+        let mut galois_elements = alignments
             .iter()
             .flat_map(PackedAffinePlan::galois_elements)
             .chain(output.galois_elements())
             .copied()
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect();
+            .collect::<BTreeSet<_>>();
+        for element in galois_elements_from_rotations(
+            alignment_rotations.iter().flatten().copied(),
+            module.n() as i64 * 2,
+        ) {
+            galois_elements.insert(element);
+        }
         Ok(Self {
             layout,
             input_widths,
             alignments,
+            alignment_rotations,
             output,
-            galois_elements,
+            galois_elements: galois_elements.into_iter().collect(),
+            alignment_drop: alignment_meta.log_delta().div_ceil(base2k.0 as usize)
+                * base2k.0 as usize,
+            output_drop,
         })
     }
 
@@ -134,24 +180,43 @@ impl<BE: Backend> PackedMultivariatePlan<BE> {
             .iter()
             .map(|plan| plan.alloc_workspace(module, input))
             .collect();
+        let base2k = input.base2k().as_usize();
+        let multiplication_drop = input.log_delta().div_ceil(base2k) * base2k;
+        let mut stage_k = input.k().as_usize().saturating_sub(self.alignment_drop);
         let mut width = self.alignments.len();
         let mut layers = Vec::new();
         while width != 0 {
-            layers.push(
-                (0..width)
-                    .map(|_| module.ckks_ciphertext_alloc_from_infos(input))
-                    .collect(),
-            );
+            let mut layer = (0..width)
+                .map(|_| module.ckks_ciphertext_alloc_from_infos(input))
+                .collect::<Vec<_>>();
+            for ciphertext in &mut layer {
+                ciphertext.set_k(stage_k.into());
+            }
+            layers.push(layer);
             if width == 1 {
                 break;
             }
             width = width.div_ceil(2);
+            stage_k = stage_k.saturating_sub(multiplication_drop);
         }
-        let output = self.output.alloc_workspace(module, input);
+        let output = self.output.alloc_workspace(
+            module,
+            &layers.last().expect("multivariate plan has an input")[0],
+        );
+        let rotation = self
+            .alignment_rotations
+            .iter()
+            .any(|rotations| !rotations.is_empty())
+            .then(|| module.ckks_ciphertext_alloc_from_infos(input));
+        let alignment_seed = rotation
+            .as_ref()
+            .map(|_| module.ckks_ciphertext_alloc_from_infos(input));
         PackedMultivariateWorkspace {
             alignment,
             layers,
             output,
+            rotation,
+            alignment_seed,
         }
     }
 }
@@ -160,6 +225,8 @@ pub struct PackedMultivariateWorkspace<BE: Backend> {
     alignment: Vec<PackedAffineWorkspace<BE>>,
     layers: Vec<Vec<CKKSCiphertextOwned<BE>>>,
     output: PackedAffineWorkspace<BE>,
+    rotation: Option<CKKSCiphertextOwned<BE>>,
+    alignment_seed: Option<CKKSCiphertextOwned<BE>>,
 }
 
 #[derive(Clone, Copy)]
@@ -273,8 +340,10 @@ impl<BE: Backend> CKKSMultivariateOps<BE> for Module<BE>
 where
     Module<BE>: CKKSPackedAffineOps<BE>
         + CKKSSplitAffineOps<BE>
+        + CKKSAddOps<BE>
         + CKKSCopyOps<BE>
         + CKKSMulOps<BE>
+        + CKKSRotateOps<BE>
         + GLWEBytesOf<BE>,
 {
     fn ckks_packed_multivariate_tmp_bytes<C, K, T>(
@@ -301,6 +370,8 @@ where
             .unwrap_or(0)
             .max(self.ckks_mul_tmp_bytes(input, input, input, tensor_key))
             .max(self.ckks_copy_tmp_bytes())
+            .max(self.ckks_rotate_tmp_bytes(input, automorphism_key))
+            .max(self.ckks_add_tmp_bytes())
     }
 
     fn ckks_packed_multivariate_into<Dst, Src, H, K, T>(
@@ -329,20 +400,44 @@ where
                 && workspace.layers.first().map(Vec::len) == Some(inputs.len()),
             "packed multivariate workspace does not match plan"
         );
-        for (((aligned, input), alignment), alignment_workspace) in workspace.layers[0]
-            .iter_mut()
-            .zip(inputs)
-            .zip(&plan.alignments)
-            .zip(&mut workspace.alignment)
-        {
-            self.ckks_packed_affine_into(
-                aligned,
-                input,
-                alignment,
-                alignment_workspace,
-                automorphism_keys,
-                scratch,
-            )?;
+        for (index, input) in inputs.iter().enumerate() {
+            let aligned = &mut workspace.layers[0][index];
+            let rotations = &plan.alignment_rotations[index];
+            if rotations.is_empty() {
+                self.ckks_packed_affine_into(
+                    aligned,
+                    input,
+                    &plan.alignments[index],
+                    &mut workspace.alignment[index],
+                    automorphism_keys,
+                    scratch,
+                )?;
+            } else {
+                let alignment_seed = workspace.alignment_seed.as_mut().unwrap();
+                self.ckks_packed_affine_into(
+                    alignment_seed,
+                    input,
+                    &plan.alignments[index],
+                    &mut workspace.alignment[index],
+                    automorphism_keys,
+                    scratch,
+                )?;
+                for &rotation in rotations {
+                    self.ckks_rotate_into(
+                        workspace.rotation.as_mut().unwrap(),
+                        &*alignment_seed,
+                        rotation,
+                        automorphism_keys,
+                        scratch,
+                    )?;
+                    self.ckks_add_assign(
+                        alignment_seed,
+                        workspace.rotation.as_ref().unwrap(),
+                        scratch,
+                    )?;
+                }
+                self.ckks_copy(aligned, &*alignment_seed, scratch)?;
+            }
         }
         for level in 0..workspace.layers.len() - 1 {
             let (previous, following) = workspace.layers.split_at_mut(level + 1);
@@ -360,6 +455,13 @@ where
             }
         }
         let tensor = &workspace.layers.last().expect("plan has inputs")[0];
+        output.set_k(
+            tensor
+                .k()
+                .as_usize()
+                .saturating_sub(plan.output_drop)
+                .into(),
+        );
         self.ckks_packed_affine_into(
             output,
             tensor,
@@ -444,6 +546,67 @@ where
             self.ckks_split_affine_into(outputs, &features, &plan.output, &mut local)
         })
     }
+}
+
+fn factorized_alignment_seed<F: BlockScalar>(
+    tensor: &TensorMap<F>,
+    variable: usize,
+) -> Result<AffineMap<F>> {
+    let full_feature_width = tensor.feature_width() + 1;
+    let input_size = tensor.input_sizes()[variable];
+    let input_width = input_size - 1;
+    let stride = tensor.input_sizes()[variable + 1..]
+        .iter()
+        .product::<usize>();
+    let mut matrix = vec![Coefficient::zero(); full_feature_width * input_width];
+    let mut bias = vec![Coefficient::zero(); full_feature_width];
+    bias[0] = Coefficient::one();
+    for digit in 1..input_size {
+        matrix[digit * stride * input_width + digit - 1] = Coefficient::one();
+    }
+    AffineMap::new(full_feature_width, input_width, matrix, bias)
+}
+
+fn factorized_alignment_rotations<F: BlockScalar>(
+    tensor: &TensorMap<F>,
+    variable: usize,
+    layout: PackedLayout,
+) -> Vec<i64> {
+    let full_feature_width = tensor.feature_width() + 1;
+    let input_size = tensor.input_sizes()[variable];
+    let stride = tensor.input_sizes()[variable + 1..]
+        .iter()
+        .product::<usize>();
+    let mut rotations = Vec::new();
+    let mut shift = 1;
+    while shift < stride {
+        rotations.push((layout.slots() - shift * layout.block_count()) as i64);
+        shift *= 2;
+    }
+    let period = input_size * stride;
+    let mut shift = period;
+    while shift < full_feature_width {
+        rotations.push((layout.slots() - shift * layout.block_count()) as i64);
+        shift *= 2;
+    }
+    rotations
+}
+
+fn augmented_output_map<F: BlockScalar>(tensor: &TensorMap<F>) -> Result<AffineMap<F>> {
+    let cols = tensor.feature_width() + 1;
+    let mut matrix = vec![Coefficient::zero(); tensor.rows() * cols];
+    for row in 0..tensor.rows() {
+        matrix[row * cols] = tensor.bias()[row];
+        matrix[row * cols + 1..(row + 1) * cols].copy_from_slice(
+            &tensor.matrix()[row * tensor.feature_width()..(row + 1) * tensor.feature_width()],
+        );
+    }
+    AffineMap::new(
+        tensor.rows(),
+        cols,
+        matrix,
+        vec![Coefficient::zero(); tensor.rows()],
+    )
 }
 
 fn alignment_map<F: BlockScalar>(tensor: &TensorMap<F>, variable: usize) -> Result<AffineMap<F>> {

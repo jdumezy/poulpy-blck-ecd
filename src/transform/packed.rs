@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use anyhow::{Result, ensure};
 use poulpy_ckks::{
     CKKSAtkBounds, CKKSCtBounds, CoeffsMeta, SetCKKSInfos,
@@ -13,7 +15,7 @@ use poulpy_core::{
     GLWEBytesOf,
     layouts::{
         Diagonals, GGLWEInfos, GLWEAutomorphismKeyHelper, GLWEInfos, GLWEToBackendMut,
-        GLWEToBackendRef,
+        GLWEToBackendRef, LWEInfos,
     },
 };
 use poulpy_hal::{
@@ -37,6 +39,7 @@ pub struct PackedAffinePlan<BE: Backend> {
     linear: PackedLinear<BE>,
     bias: Option<CKKSPlaintextOwned<BE>>,
     galois_elements: Vec<i64>,
+    output_drop: usize,
 }
 
 impl<BE: Backend> PackedAffinePlan<BE> {
@@ -105,6 +108,9 @@ impl<BE: Backend> PackedAffinePlan<BE> {
             (PackedLinear::Transform(prepared), galois_elements)
         };
 
+        let output_drop = matches!(&linear, PackedLinear::Transform(_))
+            .then(|| matrix_meta.log_delta().div_ceil(base2k.0 as usize) * base2k.0 as usize)
+            .unwrap_or(0);
         let bias = encode_bias(module, layout, map, base2k, bias_meta, scratch)?;
         Ok(Self {
             layout,
@@ -113,6 +119,7 @@ impl<BE: Backend> PackedAffinePlan<BE> {
             linear,
             bias,
             galois_elements,
+            output_drop,
         })
     }
 
@@ -130,6 +137,16 @@ impl<BE: Backend> PackedAffinePlan<BE> {
 
     pub fn galois_elements(&self) -> &[i64] {
         &self.galois_elements
+    }
+
+    /// Defers whole-radix narrowing until an explicit copy after rotations.
+    pub(crate) fn without_radix_drop(mut self) -> Self {
+        self.output_drop = 0;
+        self
+    }
+
+    pub(crate) fn radix_drop(&self) -> usize {
+        self.output_drop
     }
 
     pub fn alloc_workspace<C>(&self, module: &Module<BE>, input: &C) -> PackedAffineWorkspace<BE>
@@ -232,6 +249,12 @@ where
             input.n().as_usize() / 2 == plan.layout.slots(),
             "packed ciphertext and plan use different slot counts"
         );
+        dst.set_k(
+            dst.k()
+                .as_usize()
+                .min(input.k().as_usize().saturating_sub(plan.output_drop))
+                .into(),
+        );
         match &plan.linear {
             PackedLinear::Zero => self.ckks_sub_into(dst, input, input, scratch)?,
             PackedLinear::Identity => self.ckks_copy(dst, input, scratch)?,
@@ -312,6 +335,48 @@ fn build_diagonals<F: BlockScalar>(
     layout: PackedLayout,
     map: &AffineMap<F>,
 ) -> ComplexDiagonals<F> {
+    if !layout.is_interleaved() {
+        return build_contiguous_diagonals(layout, map);
+    }
+    let mut real = Diagonals::new(layout.slots());
+    let mut imag = Diagonals::new(layout.slots());
+    let mut diagonals = BTreeMap::new();
+    for row in 0..map.rows() {
+        for col in 0..map.cols() {
+            let value = map.matrix()[row * map.cols() + col].value();
+            if value.re == F::zero() && value.im == F::zero() {
+                continue;
+            }
+            let lane_rotation = (col + layout.lane_width() - row) % layout.lane_width();
+            let diagonal = (lane_rotation * layout.block_count()) as i64;
+            let (re, im) = diagonals.entry(diagonal).or_insert_with(|| {
+                (
+                    vec![F::zero(); layout.slots()],
+                    vec![F::zero(); layout.slots()],
+                )
+            });
+            for block in 0..layout.block_count() {
+                let slot = layout.slot(block, row);
+                re[slot] = value.re;
+                im[slot] = value.im;
+            }
+        }
+    }
+    for (diagonal, (re, im)) in diagonals {
+        if re.iter().any(|&value| value != F::zero()) {
+            real.set(diagonal, re);
+        }
+        if im.iter().any(|&value| value != F::zero()) {
+            imag.set(diagonal, im);
+        }
+    }
+    ComplexDiagonals::new(real, imag)
+}
+
+fn build_contiguous_diagonals<F: BlockScalar>(
+    layout: PackedLayout,
+    map: &AffineMap<F>,
+) -> ComplexDiagonals<F> {
     let mut real = Diagonals::new(layout.slots());
     let mut imag = Diagonals::new(layout.slots());
     for diagonal in -(map.rows() as i64 - 1)..map.cols() as i64 {
@@ -326,7 +391,7 @@ fn build_diagonals<F: BlockScalar>(
                     continue;
                 }
                 let value = map.matrix()[row * map.cols() + col as usize].value();
-                let slot = block * layout.block_width() + row;
+                let slot = layout.slot(block, row);
                 re[slot] = value.re;
                 im[slot] = value.im;
                 has_re |= value.re != F::zero();
@@ -364,7 +429,7 @@ where
     for block in 0..layout.block_count() {
         for (row, coefficient) in map.bias().iter().enumerate() {
             let value = coefficient.value();
-            let slot = block * layout.block_width() + row;
+            let slot = layout.slot(block, row);
             re[slot] = value.re;
             im[slot] = value.im;
         }
