@@ -1,6 +1,6 @@
 use anyhow::{Result, ensure};
 use poulpy_ckks::{
-    CKKSCtBounds, SetCKKSInfos,
+    CKKSCtBounds, CKKSInfos, SetCKKSInfos,
     api::{CKKSAddOps, CKKSCopyOps, CKKSMulOps, CKKSNegOps, CKKSPow2Ops},
     layouts::ScratchArenaTakeCKKS,
 };
@@ -13,6 +13,7 @@ use poulpy_core::{
 };
 use poulpy_hal::layouts::{Backend, Module, ScratchArena};
 
+use super::precision::multiplication_output_k;
 use crate::algebra::CleaningMode;
 
 /// Low-level cubic cleaning operations implemented by compatible Poulpy modules.
@@ -92,11 +93,10 @@ where
         Src: GLWEToBackendRef<BE> + CKKSCtBounds,
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>,
     {
-        let base2k = input.base2k().as_usize();
-        let level_drop = input.log_delta().div_ceil(base2k) * base2k;
+        let level_drop = input.log_delta();
         ensure!(
-            input.k().as_usize() > 2 * level_drop,
-            "cleaning needs two radix levels after its input"
+            input.log_budget() >= 2 * level_drop,
+            "cleaning needs two precision levels after its input"
         );
         scratch.scope(|local| {
             let (mut square, mut local) = local.take_ckks_ciphertext_scratch(input, input.meta());
@@ -104,7 +104,12 @@ where
                 square
                     .k()
                     .as_usize()
-                    .min(input.k().as_usize() - level_drop)
+                    .min(multiplication_output_k(
+                        input.k().as_usize(),
+                        input.log_delta(),
+                        input.k().as_usize(),
+                        input.log_delta(),
+                    ))
                     .into(),
             );
             self.ckks_square_into(&mut square, input, tensor_key, &mut local)?;
@@ -112,7 +117,12 @@ where
                 output
                     .k()
                     .as_usize()
-                    .min(square.k().as_usize() - level_drop)
+                    .min(multiplication_output_k(
+                        square.k().as_usize(),
+                        square.log_delta(),
+                        input.k().as_usize(),
+                        input.log_delta(),
+                    ))
                     .into(),
             );
             self.ckks_mul_into(output, &square, input, tensor_key, &mut local)?;

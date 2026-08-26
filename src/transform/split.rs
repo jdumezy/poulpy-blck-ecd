@@ -9,13 +9,14 @@ use poulpy_ckks::{
 };
 use poulpy_core::{
     GLWEBytesOf,
-    layouts::{GLWEToBackendMut, GLWEToBackendRef},
+    layouts::{GLWEToBackendMut, GLWEToBackendRef, LWEInfos},
 };
 use poulpy_hal::{
     api::ModuleN,
     layouts::{Backend, Module, ScratchArena},
 };
 
+use super::precision::plaintext_output_k;
 use crate::{
     algebra::{AffineMap, Coefficient},
     scalar::BlockScalar,
@@ -55,6 +56,7 @@ pub struct SplitAffinePlan<BE: Backend> {
     rows: Vec<SplitRow>,
     scalar_banks: Vec<CKKSPlaintextOwned<BE>>,
     bank_width: usize,
+    scalar_log_delta: usize,
 }
 
 impl<BE: Backend> SplitAffinePlan<BE> {
@@ -117,6 +119,7 @@ impl<BE: Backend> SplitAffinePlan<BE> {
             rows,
             scalar_banks,
             bank_width,
+            scalar_log_delta: scalar_meta.log_delta(),
         })
     }
 
@@ -223,6 +226,18 @@ where
             "split output width does not match plan"
         );
         for (output, row) in outputs.iter_mut().zip(&plan.rows) {
+            let natural_k = row
+                .terms
+                .iter()
+                .map(|term| match *term {
+                    SplitTerm::Exact { input, .. } => inputs[input].k().as_usize(),
+                    SplitTerm::Scalar { input, .. } => {
+                        plaintext_output_k(inputs[input].k().as_usize(), plan.scalar_log_delta)
+                    }
+                })
+                .min()
+                .unwrap_or_else(|| inputs[0].k().as_usize());
+            output.set_k(output.k().as_usize().min(natural_k).into());
             scratch.scope(|local| {
                 let (mut temporaries, mut local) =
                     local.take_ckks_ciphertext_slice_scratch(2, output, output.meta());

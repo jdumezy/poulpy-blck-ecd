@@ -6,10 +6,12 @@ use poulpy_ckks::{
 };
 use poulpy_core::GLWEBytesOf;
 use poulpy_core::layouts::{
-    GGLWEInfos, GLWEToBackendMut, GLWEToBackendRef,
+    GGLWEInfos, GLWEToBackendMut, GLWEToBackendRef, LWEInfos,
     prepared::{GGLWEPreparedToBackendRef, GLWETensorKeyPreparedToBackendRef},
 };
 use poulpy_hal::layouts::{Backend, Module, ScratchArena};
+
+use super::precision::multiplication_output_k;
 
 /// Native block products, extrema, and conjugation operations for supported encodings.
 pub trait CKKSBlockMulOps<BE: Backend> {
@@ -27,7 +29,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         B: CKKSCtBounds,
         T: GGLWEInfos;
 
-    /// Multiplies two packed encoded values coordinatewise.
+    /// Multiplies two packed encoded values coordinatewise at the natural product width.
     fn ckks_packed_native_mul_into<Dst, A, B, T>(
         &self,
         output: &mut Dst,
@@ -56,7 +58,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         B: CKKSCtBounds,
         T: GGLWEInfos;
 
-    /// Multiplies two split encoded values coordinatewise.
+    /// Multiplies two split encoded values coordinatewise at the natural product width.
     fn ckks_split_native_mul_into<Dst, A, B, T>(
         &self,
         outputs: &mut [Dst],
@@ -121,7 +123,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         B: CKKSCtBounds,
         T: GGLWEInfos;
 
-    /// Evaluates a native maximum on packed encoded values.
+    /// Evaluates a native maximum on packed encoded values at the natural product width.
     fn ckks_packed_native_max_into<Dst, A, B, T>(
         &self,
         output: &mut Dst,
@@ -136,7 +138,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         B: GLWEToBackendRef<BE> + CKKSCtBounds,
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>;
 
-    /// Evaluates a native maximum on split encoded values.
+    /// Evaluates a native maximum on split encoded values at the natural product width.
     fn ckks_split_native_max_into<Dst, A, B, T>(
         &self,
         outputs: &mut [Dst],
@@ -200,7 +202,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         T: GGLWEInfos;
 
     #[allow(clippy::too_many_arguments)]
-    /// Multiplies a packed encoded value by the blockwise conjugate of another.
+    /// Multiplies a packed encoded value by the blockwise conjugate of another at the natural product width.
     fn ckks_packed_conjugate_product_into<Dst, A, B, K, T>(
         &self,
         output: &mut Dst,
@@ -218,7 +220,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>;
 
     #[allow(clippy::too_many_arguments)]
-    /// Multiplies split encoded values after blockwise conjugating the right input.
+    /// Multiplies split encoded values after blockwise conjugating the right input at the natural product width.
     fn ckks_split_conjugate_product_into<Dst, A, B, K, T>(
         &self,
         outputs: &mut [Dst],
@@ -271,6 +273,18 @@ where
         B: GLWEToBackendRef<BE> + CKKSCtBounds,
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>,
     {
+        output.set_k(
+            output
+                .k()
+                .as_usize()
+                .min(multiplication_output_k(
+                    lhs.k().as_usize(),
+                    lhs.log_delta(),
+                    rhs.k().as_usize(),
+                    rhs.log_delta(),
+                ))
+                .into(),
+        );
         self.ckks_mul_into(output, lhs, rhs, tensor_key, scratch)?;
         Ok(())
     }
@@ -314,7 +328,7 @@ where
             "split native-product output has the wrong width"
         );
         for ((output, lhs), rhs) in outputs.iter_mut().zip(lhs).zip(rhs) {
-            self.ckks_mul_into(output, lhs, rhs, tensor_key, scratch)?;
+            self.ckks_packed_native_mul_into(output, lhs, rhs, tensor_key, scratch)?;
         }
         Ok(())
     }
@@ -351,6 +365,18 @@ where
         B: GLWEToBackendRef<BE> + CKKSCtBounds,
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>,
     {
+        output.set_k(
+            output
+                .k()
+                .as_usize()
+                .min(multiplication_output_k(
+                    lhs.k().as_usize(),
+                    lhs.log_delta(),
+                    rhs.k().as_usize(),
+                    rhs.log_delta(),
+                ))
+                .into(),
+        );
         self.ckks_mul_into(output, lhs, rhs, tensor_key, scratch)?;
         self.ckks_neg_assign(output)?;
         self.ckks_add_assign(output, lhs, scratch)?;
@@ -406,6 +432,7 @@ where
         Src: GLWEToBackendRef<BE> + CKKSCtBounds,
         K: CKKSAtkBounds<BE>,
     {
+        output.set_k(output.k().as_usize().min(input.k().as_usize()).into());
         self.ckks_conjugate_into(output, input, key, scratch)?;
         Ok(())
     }
@@ -466,6 +493,18 @@ where
         K: CKKSAtkBounds<BE>,
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>,
     {
+        output.set_k(
+            output
+                .k()
+                .as_usize()
+                .min(multiplication_output_k(
+                    lhs.k().as_usize(),
+                    lhs.log_delta(),
+                    rhs.k().as_usize(),
+                    rhs.log_delta(),
+                ))
+                .into(),
+        );
         scratch.scope(|local| {
             let (mut conjugate, mut local) = local.take_ckks_ciphertext_like_scratch(rhs);
             self.ckks_conjugate_into(&mut conjugate, rhs, conjugation_key, &mut local)?;

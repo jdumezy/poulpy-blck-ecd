@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use anyhow::{Result, ensure};
 use poulpy_ckks::{
-    CKKSAtkBounds, CKKSCtBounds, CoeffsMeta, SetCKKSInfos,
+    CKKSAtkBounds, CKKSCtBounds, CKKSInfos, CoeffsMeta, SetCKKSInfos,
     api::{
         CKKSAddOps, CKKSCopyOps, CKKSEncodingOps, CKKSEncodingScalar, CKKSLinearTransformationOps,
         CKKSMulOps, CKKSRotateOps,
@@ -22,6 +22,7 @@ use poulpy_hal::{
     layouts::{Backend, Module, ScratchArena, galois_elements_from_rotations},
 };
 
+use super::precision::{multiplication_output_k, plaintext_output_k};
 use super::{
     CKKSPackedAffineOps, CKKSSplitAffineOps, PackedAffinePlan, PackedAffineWorkspace,
     SplitAffinePlan, TransformStrategy,
@@ -40,7 +41,7 @@ pub struct PackedMultivariatePlan<BE: Backend> {
     alignment_rotations: Vec<Vec<i64>>,
     output: PackedAffinePlan<BE>,
     galois_elements: Vec<i64>,
-    alignment_drop: usize,
+    alignment_drops: Vec<usize>,
     output_drop: usize,
 }
 
@@ -85,6 +86,7 @@ impl<BE: Backend> PackedMultivariatePlan<BE> {
             layout
         };
         let mut alignments = Vec::with_capacity(input_widths.len());
+        let mut alignment_drops = Vec::with_capacity(input_widths.len());
         let mut alignment_rotations = Vec::with_capacity(input_widths.len());
         for variable in 0..input_widths.len() {
             let alignment = if factor_spreads {
@@ -101,8 +103,9 @@ impl<BE: Backend> PackedMultivariatePlan<BE> {
                 strategy,
                 scratch,
             )?;
+            alignment_drops.push(alignment.output_drop());
             alignments.push(if factor_spreads {
-                alignment.without_radix_drop()
+                alignment.without_output_drop()
             } else {
                 alignment
             });
@@ -126,7 +129,7 @@ impl<BE: Backend> PackedMultivariatePlan<BE> {
             strategy,
             scratch,
         )?;
-        let output_drop = output.radix_drop();
+        let output_drop = output.output_drop();
         let mut galois_elements = alignments
             .iter()
             .flat_map(PackedAffinePlan::galois_elements)
@@ -146,8 +149,7 @@ impl<BE: Backend> PackedMultivariatePlan<BE> {
             alignment_rotations,
             output,
             galois_elements: galois_elements.into_iter().collect(),
-            alignment_drop: alignment_meta.log_delta().div_ceil(base2k.0 as usize)
-                * base2k.0 as usize,
+            alignment_drops,
             output_drop,
         })
     }
@@ -187,24 +189,32 @@ impl<BE: Backend> PackedMultivariatePlan<BE> {
             .iter()
             .map(|plan| plan.alloc_workspace(module, input))
             .collect();
-        let base2k = input.base2k().as_usize();
-        let multiplication_drop = input.log_delta().div_ceil(base2k) * base2k;
-        let mut stage_k = input.k().as_usize().saturating_sub(self.alignment_drop);
-        let mut width = self.alignments.len();
+        let log_delta = input.log_delta();
+        let mut stage_ks = self
+            .alignment_drops
+            .iter()
+            .map(|&drop| plaintext_output_k(input.k().as_usize(), drop))
+            .collect::<Vec<_>>();
         let mut layers = Vec::new();
-        while width != 0 {
-            let mut layer = (0..width)
+        while !stage_ks.is_empty() {
+            let mut layer = (0..stage_ks.len())
                 .map(|_| module.ckks_ciphertext_alloc_from_infos(input))
                 .collect::<Vec<_>>();
-            for ciphertext in &mut layer {
+            for (ciphertext, &stage_k) in layer.iter_mut().zip(&stage_ks) {
                 ciphertext.set_k(stage_k.into());
             }
             layers.push(layer);
-            if width == 1 {
+            if stage_ks.len() == 1 {
                 break;
             }
-            width = width.div_ceil(2);
-            stage_k = stage_k.saturating_sub(multiplication_drop);
+            stage_ks = stage_ks
+                .chunks(2)
+                .map(|pair| match pair {
+                    [lhs, rhs] => multiplication_output_k(*lhs, log_delta, *rhs, log_delta),
+                    [unpaired] => *unpaired,
+                    _ => unreachable!("chunks of two contain one or two elements"),
+                })
+                .collect();
         }
         let output = self.output.alloc_workspace(
             module,
@@ -474,10 +484,10 @@ where
         }
         let tensor = &workspace.layers.last().expect("plan has inputs")[0];
         output.set_k(
-            tensor
+            output
                 .k()
                 .as_usize()
-                .saturating_sub(plan.output_drop)
+                .min(plaintext_output_k(tensor.k().as_usize(), plan.output_drop))
                 .into(),
         );
         self.ckks_packed_affine_into(
@@ -550,15 +560,36 @@ where
                         variable,
                         coordinate,
                     } => {
+                        current[0].set_k(
+                            current[0]
+                                .k()
+                                .as_usize()
+                                .min(inputs[variable][coordinate].k().as_usize())
+                                .into(),
+                        );
                         self.ckks_copy(&mut current[0], &inputs[variable][coordinate], &mut local)?
                     }
-                    FeatureRecipe::Product { lhs, rhs } => self.ckks_mul_into(
-                        &mut current[0],
-                        &previous[lhs],
-                        &previous[rhs],
-                        tensor_key,
-                        &mut local,
-                    )?,
+                    FeatureRecipe::Product { lhs, rhs } => {
+                        current[0].set_k(
+                            current[0]
+                                .k()
+                                .as_usize()
+                                .min(multiplication_output_k(
+                                    previous[lhs].k().as_usize(),
+                                    previous[lhs].log_delta(),
+                                    previous[rhs].k().as_usize(),
+                                    previous[rhs].log_delta(),
+                                ))
+                                .into(),
+                        );
+                        self.ckks_mul_into(
+                            &mut current[0],
+                            &previous[lhs],
+                            &previous[rhs],
+                            tensor_key,
+                            &mut local,
+                        )?
+                    }
                 }
             }
             self.ckks_split_affine_into(outputs, &features, &plan.output, &mut local)

@@ -8,6 +8,7 @@ mod clean_plan;
 mod multivariate;
 mod native;
 mod packed;
+mod precision;
 mod split;
 
 use anyhow::{Result, ensure};

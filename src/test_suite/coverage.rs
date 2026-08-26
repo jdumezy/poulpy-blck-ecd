@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use poulpy_ckks::{
-    CoeffsMeta,
+    CKKSInfos, CoeffsMeta,
     api::{CKKSEncodingOps, CKKSLinearTransformationOps},
     test_suite::{
         CKKSTestParams,
@@ -13,6 +13,7 @@ use poulpy_ckks::{
         reference_encoder::ReferenceEncoder,
     },
 };
+use poulpy_core::layouts::LWEInfos;
 use poulpy_hal::{
     api::{
         CnvPVecAlloc, ModuleN, NegacyclicFFT, NegacyclicFFTNew, ScratchOwnedAlloc,
@@ -95,6 +96,11 @@ pub fn test_characters<BE, F, E>(
     module
         .ckks_packed_native_mul_into(&mut product, &lhs, &rhs, &tensor_key, &mut scratch.borrow())
         .unwrap();
+    assert_eq!(
+        product.k().as_usize(),
+        lhs.k().as_usize() - lhs.log_delta(),
+        "one native multiplication must consume exactly one ciphertext precision"
+    );
     let product_values = lhs_values
         .iter()
         .zip(&rhs_values)
@@ -594,6 +600,11 @@ pub fn test_transform_strategies<BE, F, E>(
                 &mut scratch.borrow(),
             )
             .unwrap();
+        assert_eq!(
+            result.k().as_usize(),
+            ciphertext.k().as_usize() - 24,
+            "an approximate 24-bit plaintext transform must consume exactly 24 bits"
+        );
         assert_decrypt_precision_at_log_delta(
             name,
             &params,
@@ -744,6 +755,11 @@ pub fn test_asymmetric_multivariate<BE, F, E>(
             &mut scratch.borrow(),
         )
         .unwrap();
+    assert_eq!(
+        result.k().as_usize(),
+        params.k - 24 - params.prec_meta.log_delta - 24,
+        "the 24-bit alignments, bivariate product, and 24-bit output transform must retain bit granularity"
+    );
     let mapped = bit_values
         .iter()
         .zip(&trit_values)
@@ -826,6 +842,13 @@ pub fn test_asymmetric_multivariate<BE, F, E>(
             &mut operation_scratch.borrow(),
         )
         .unwrap();
+    for ciphertext in &result {
+        assert_eq!(
+            ciphertext.k().as_usize(),
+            params.k - params.prec_meta.log_delta - 24,
+            "split tensor products and scalar transforms must retain bit granularity"
+        );
+    }
     let mapped = bit_values
         .iter()
         .zip(&trit_values)

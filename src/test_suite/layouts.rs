@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use poulpy_ckks::{
-    CoeffsMeta,
+    CKKSInfos, CoeffsMeta,
     api::{CKKSEncodingOps, CKKSLinearTransformationOps},
     test_suite::{
         CKKSTestParams,
@@ -13,6 +13,7 @@ use poulpy_ckks::{
         reference_encoder::ReferenceEncoder,
     },
 };
+use poulpy_core::layouts::LWEInfos;
 use poulpy_hal::{
     api::{
         CnvPVecAlloc, ModuleN, NegacyclicFFT, NegacyclicFFTNew, ScratchOwnedAlloc,
@@ -212,6 +213,11 @@ fn test_packed<BE, F, E, T>(
             &mut scratch.borrow(),
         )
         .unwrap();
+    assert_eq!(
+        product.k().as_usize(),
+        input_ct.k().as_usize() - input_ct.log_delta(),
+        "one native multiplication must consume exactly one ciphertext precision"
+    );
     let product_values = values
         .iter()
         .zip(&rhs_values)
@@ -407,6 +413,13 @@ fn test_split<BE, F, E, T>(
             &mut scratch.borrow(),
         )
         .unwrap();
+    for (ciphertext, input) in product.iter().zip(&inputs) {
+        assert_eq!(
+            ciphertext.k().as_usize(),
+            input.k().as_usize() - input.log_delta(),
+            "one split native multiplication must consume exactly one ciphertext precision"
+        );
+    }
     let product_values = values
         .iter()
         .zip(&rhs_values)
@@ -633,6 +646,11 @@ fn test_multivariate_and_cleaning<BE, F, E, T>(
             &mut scratch.borrow(),
         )
         .unwrap();
+    assert_eq!(
+        cleaned.k().as_usize(),
+        clean_input.k().as_usize() - 2 * clean_input.log_delta(),
+        "cubic cleaning must consume exactly two ciphertext precisions"
+    );
     assert_decrypt_precision_at_log_delta(
         "packed_cleaning",
         params,

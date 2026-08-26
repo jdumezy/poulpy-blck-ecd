@@ -24,6 +24,7 @@ use poulpy_hal::{
 };
 
 use super::TransformStrategy;
+use super::precision::plaintext_output_k;
 use crate::{algebra::AffineMap, layout::PackedLayout, scalar::BlockScalar};
 
 enum PackedLinear<BE: Backend> {
@@ -111,7 +112,7 @@ impl<BE: Backend> PackedAffinePlan<BE> {
         };
 
         let output_drop = matches!(&linear, PackedLinear::Transform(_))
-            .then(|| matrix_meta.log_delta().div_ceil(base2k.0 as usize) * base2k.0 as usize)
+            .then(|| matrix_meta.log_delta())
             .unwrap_or(0);
         let bias = encode_bias(module, layout, map, base2k, bias_meta, scratch)?;
         Ok(Self {
@@ -145,13 +146,14 @@ impl<BE: Backend> PackedAffinePlan<BE> {
         &self.galois_elements
     }
 
-    /// Defers whole-radix narrowing until an explicit copy after rotations.
-    pub(crate) fn without_radix_drop(mut self) -> Self {
+    /// Defers output narrowing until an explicit copy after rotations.
+    pub(crate) fn without_output_drop(mut self) -> Self {
         self.output_drop = 0;
         self
     }
 
-    pub(crate) fn radix_drop(&self) -> usize {
+    /// Returns the exact bit cost of the plan's linear plaintext multiplication.
+    pub(crate) fn output_drop(&self) -> usize {
         self.output_drop
     }
 
@@ -263,7 +265,7 @@ where
         dst.set_k(
             dst.k()
                 .as_usize()
-                .min(input.k().as_usize().saturating_sub(plan.output_drop))
+                .min(plaintext_output_k(input.k().as_usize(), plan.output_drop))
                 .into(),
         );
         match &plan.linear {
@@ -449,4 +451,29 @@ where
     bias.set_meta_checked(coeffs_meta.meta)?;
     module.ckks_encode_reim_into(&mut bias, &re, &im, scratch)?;
     Ok(Some(bias))
+}
+
+#[cfg(test)]
+mod tests {
+    use poulpy_ckks::CoeffsMeta;
+
+    use super::effective_meta;
+    use crate::algebra::Coefficient;
+
+    #[test]
+    fn exact_coefficients_preserve_bit_granular_requested_precision() {
+        let requested = CoeffsMeta::from_delta_budget(6, 4);
+        let effective = effective_meta(&[Coefficient::<f64>::exact(1, 0, 6)], requested).unwrap();
+        assert_eq!(effective.log_delta(), 6);
+        assert_eq!(effective.k.as_usize(), 10);
+    }
+
+    #[test]
+    fn approximate_coefficients_use_the_requested_precision() {
+        let requested = CoeffsMeta::from_delta_budget(24, 4);
+        let effective =
+            effective_meta(&[Coefficient::<f64>::approximate(0.1, 0.0)], requested).unwrap();
+        assert_eq!(effective.log_delta(), 24);
+        assert_eq!(effective.k.as_usize(), 28);
+    }
 }
