@@ -1,3 +1,8 @@
+//! Prepared CKKS circuits for evaluating maps and native operations on encoded blocks.
+//!
+//! Plans precompute backend data and expose reusable workspaces, while operation traits extend
+//! Poulpy modules with packed and split evaluation routines.
+
 mod clean;
 mod clean_plan;
 mod multivariate;
@@ -17,11 +22,16 @@ pub use packed::{CKKSPackedAffineOps, PackedAffinePlan, PackedAffineWorkspace};
 pub use split::{CKKSSplitAffineOps, SplitAffinePlan};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Scheduling strategy for packed linear transformations.
 pub enum TransformStrategy {
+    /// Selects a strategy and baby-step/giant-step split automatically.
     #[default]
     Auto,
+    /// Evaluates each nonzero diagonal directly.
     Direct,
+    /// Uses an explicit baby-step/giant-step decomposition.
     Bsgs {
+        /// Number of diagonals grouped into each giant step.
         giant_step: usize,
     },
 }

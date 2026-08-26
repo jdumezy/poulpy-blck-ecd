@@ -1,6 +1,6 @@
 # 🐙 poulpy-blck-ecd
 
-`poulpy-blck-ecd` implements character block encodings for finite alphabets in discrete CKKS over [`poulpy-ckks`](https://github.com/poulpy-fhe/poulpy).
+`poulpy-blck-ecd` implements block encodings for finite alphabets in discrete CKKS from [the original paper](https://eprint.iacr.org/2026/1200) over [`poulpy-ckks`](https://github.com/poulpy-fhe/poulpy).
 It compiles univariate and multivariate lookup tables into reusable affine and nonlinear circuits, with packed and split ciphertext layouts for the Poulpy backends.
 
 ## API
@@ -41,10 +41,6 @@ Plans can be reused for ciphertexts with compatible CKKS parameters and layouts.
 
 `poulpy-blck-ecd` does not select CKKS security parameters or insert bootstrapping automatically.
 Applications must choose parameters for their security target, reserve enough modulus for each planned circuit, generate the required evaluation keys, and bootstrap explicitly when required.
-
-The crate uses the nightly Rust toolchain pinned in `rust-toolchain.toml`.
-The `ref`, `avx`, `avx512`, `ifma`, and `neon` features select architecture-specific Poulpy backends; they are not all valid on the same target.
-On a compatible x86 host, `-C target-cpu=native` enables the CPU features required by the accelerated backends.
 
 ## Test
 

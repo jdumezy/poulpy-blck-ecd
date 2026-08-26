@@ -35,6 +35,7 @@ use crate::{
     },
 };
 
+/// Tests packed and split layouts across affine, multivariate, and cleaning circuits.
 pub fn test_layouts<BE, F, E>(
     params: CKKSTestParams,
     module: &Module<BE>,

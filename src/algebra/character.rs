@@ -34,16 +34,19 @@ fn check_values<F: BlockScalar>(values: &[Coefficient<F>], expected: usize) -> R
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Root-of-unity character encoding of the additive group modulo an integer.
 pub struct Bru {
     modulus: usize,
 }
 
 impl Bru {
+    /// Constructs a root-of-unity encoding for the requested modulus.
     pub fn new(modulus: usize) -> Result<Self> {
         ensure!(modulus >= 2, "BRU modulus must be at least 2");
         Ok(Self { modulus })
     }
 
+    /// Returns the additive modulus and alphabet size.
     pub fn modulus(&self) -> usize {
         self.modulus
     }
@@ -95,6 +98,7 @@ impl<F: BlockScalar> BlockEncoding<F> for Bru {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Multiplicative-character encoding of a prime field, extended with zero.
 pub struct Lbru {
     prime: usize,
     generator: usize,
@@ -102,11 +106,13 @@ pub struct Lbru {
 }
 
 impl Lbru {
+    /// Constructs an encoding using an automatically selected primitive root.
     pub fn new(prime: usize) -> Result<Self> {
         let generator = primitive_root(prime)?;
         Self::with_generator(prime, generator)
     }
 
+    /// Constructs an encoding using the supplied primitive root.
     pub fn with_generator(prime: usize, generator: usize) -> Result<Self> {
         ensure!(is_prime(prime), "LBRU modulus {prime} is not prime");
         ensure!(
@@ -138,10 +144,12 @@ impl Lbru {
         })
     }
 
+    /// Returns the prime modulus and alphabet size.
     pub fn modulus(&self) -> usize {
         self.prime
     }
 
+    /// Returns the primitive root used to order nonzero field elements.
     pub fn generator(&self) -> usize {
         self.generator
     }
@@ -199,12 +207,14 @@ impl<F: BlockScalar> BlockEncoding<F> for Lbru {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Walsh-Hadamard character encoding of fixed-width bit strings.
 pub struct WalshHadamard {
     bits: usize,
     size: usize,
 }
 
 impl WalshHadamard {
+    /// Constructs an encoding for bit strings of the requested width.
     pub fn new(bits: usize) -> Result<Self> {
         ensure!(bits > 0, "Walsh-Hadamard dimension must be positive");
         let shift = u32::try_from(bits)
@@ -215,6 +225,7 @@ impl WalshHadamard {
         Ok(Self { bits, size })
     }
 
+    /// Returns the number of bits in each alphabet symbol.
     pub fn bits(&self) -> usize {
         self.bits
     }

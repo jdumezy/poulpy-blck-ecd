@@ -5,6 +5,7 @@ use super::{codewords, nearest};
 use crate::{algebra::BlockEncoding, scalar::BlockScalar};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Placement of several complete encoded blocks within one CKKS ciphertext.
 pub struct PackedLayout {
     slots: usize,
     block_width: usize,
@@ -13,10 +14,12 @@ pub struct PackedLayout {
 }
 
 impl PackedLayout {
+    /// Constructs the default interleaved layout.
     pub fn new(slots: usize, block_width: usize) -> Result<Self> {
         Self::interleaved(slots, block_width)
     }
 
+    /// Constructs a coordinate-major layout with power-of-two lane padding.
     pub fn interleaved(slots: usize, block_width: usize) -> Result<Self> {
         ensure!(
             slots.is_power_of_two(),
@@ -55,6 +58,7 @@ impl PackedLayout {
         })
     }
 
+    /// Constructs a layout wide enough for both input and output blocks.
     pub fn for_widths(slots: usize, input_width: usize, output_width: usize) -> Result<Self> {
         ensure!(
             input_width != 0 && output_width != 0,
@@ -63,10 +67,12 @@ impl PackedLayout {
         Self::new(slots, input_width.max(output_width))
     }
 
+    /// Returns the total number of complex CKKS slots.
     pub fn slots(&self) -> usize {
         self.slots
     }
 
+    /// Returns the number of active coordinates reserved per block.
     pub fn block_width(&self) -> usize {
         self.block_width
     }
@@ -76,10 +82,12 @@ impl PackedLayout {
         self.lane_width
     }
 
+    /// Reports whether coordinates are stored in separate interleaved lanes.
     pub fn is_interleaved(&self) -> bool {
         self.interleaved
     }
 
+    /// Returns the number of complete blocks that fit in the layout.
     pub fn block_count(&self) -> usize {
         self.slots
             / if self.interleaved {
@@ -89,10 +97,12 @@ impl PackedLayout {
             }
     }
 
+    /// Returns the number of slots occupied by active block coordinates.
     pub fn used_slots(&self) -> usize {
         self.block_count() * self.block_width
     }
 
+    /// Returns the slot index for one block coordinate.
     pub fn slot(&self, block: usize, coordinate: usize) -> usize {
         assert!(
             block < self.block_count(),
@@ -109,6 +119,7 @@ impl PackedLayout {
         }
     }
 
+    /// Encodes symbols into newly allocated real and imaginary slot vectors.
     pub fn encode_slots<F, E>(&self, encoding: &E, values: &[usize]) -> Result<PackedSlots<F>>
     where
         F: BlockScalar,
@@ -134,6 +145,7 @@ impl PackedLayout {
         Ok(slots)
     }
 
+    /// Encodes symbols into existing real and imaginary slot vectors.
     pub fn encode_slots_into<F, E>(
         &self,
         encoding: &E,
@@ -175,6 +187,7 @@ impl PackedLayout {
         Ok(())
     }
 
+    /// Decodes the requested number of blocks by nearest codeword.
     pub fn decode_slots<F, E>(
         &self,
         encoding: &E,
@@ -215,7 +228,10 @@ impl PackedLayout {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// Real and imaginary CKKS slot vectors for a packed layout.
 pub struct PackedSlots<F> {
+    /// Real slot components.
     pub re: Vec<F>,
+    /// Imaginary slot components.
     pub im: Vec<F>,
 }

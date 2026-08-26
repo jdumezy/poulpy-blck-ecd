@@ -4,12 +4,16 @@ use super::{BlockEncoding, Coefficient};
 use crate::scalar::BlockScalar;
 
 #[derive(Clone, Debug, PartialEq)]
+/// Scalar-valued affine function over one encoded block.
 pub struct AffineFunction<F> {
+    /// Constant term.
     pub bias: Coefficient<F>,
+    /// Linear weights in coordinate order.
     pub weights: Vec<Coefficient<F>>,
 }
 
 impl<F: BlockScalar> AffineFunction<F> {
+    /// Evaluates the affine function on one coordinate vector.
     pub fn evaluate(&self, input: &[Coefficient<F>]) -> Result<Coefficient<F>> {
         ensure!(
             input.len() == self.weights.len(),
@@ -26,6 +30,7 @@ impl<F: BlockScalar> AffineFunction<F> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// Row-major affine map between coordinate blocks.
 pub struct AffineMap<F> {
     rows: usize,
     cols: usize,
@@ -34,6 +39,7 @@ pub struct AffineMap<F> {
 }
 
 impl<F: BlockScalar> AffineMap<F> {
+    /// Constructs an affine map after validating its dimensions and storage.
     pub fn new(
         rows: usize,
         cols: usize,
@@ -65,6 +71,7 @@ impl<F: BlockScalar> AffineMap<F> {
         })
     }
 
+    /// Constructs an identity map of the requested width.
     pub fn identity(width: usize) -> Result<Self> {
         let matrix_len = width
             .checked_mul(width)
@@ -76,22 +83,27 @@ impl<F: BlockScalar> AffineMap<F> {
         Self::new(width, width, matrix, vec![Coefficient::zero(); width])
     }
 
+    /// Returns the number of output coordinates.
     pub fn rows(&self) -> usize {
         self.rows
     }
 
+    /// Returns the number of input coordinates.
     pub fn cols(&self) -> usize {
         self.cols
     }
 
+    /// Returns the row-major linear matrix.
     pub fn matrix(&self) -> &[Coefficient<F>] {
         &self.matrix
     }
 
+    /// Returns the output bias vector.
     pub fn bias(&self) -> &[Coefficient<F>] {
         &self.bias
     }
 
+    /// Evaluates the affine map on one coordinate vector.
     pub fn evaluate(&self, input: &[Coefficient<F>]) -> Result<Vec<Coefficient<F>>> {
         ensure!(
             input.len() == self.cols,
@@ -108,6 +120,7 @@ impl<F: BlockScalar> AffineMap<F> {
             .collect())
     }
 
+    /// Composes this map after the supplied input map.
     pub fn compose(&self, input: &Self) -> Result<Self> {
         ensure!(
             self.cols == input.rows,
@@ -132,6 +145,7 @@ impl<F: BlockScalar> AffineMap<F> {
         Self::new(self.rows, input.cols, matrix, bias)
     }
 
+    /// Reports whether every matrix and bias coefficient is exact.
     pub fn is_exact(&self) -> bool {
         self.matrix
             .iter()
@@ -140,6 +154,7 @@ impl<F: BlockScalar> AffineMap<F> {
     }
 }
 
+/// Compiles coordinate-valued outputs into an affine map over an input encoding.
 pub fn compile_coordinates<F, I>(
     input: &I,
     output_values: &[Vec<Coefficient<F>>],
@@ -179,6 +194,7 @@ where
     AffineMap::new(rows, input.block_size(), matrix, bias)
 }
 
+/// Compiles a univariate symbol lookup table between two block encodings.
 pub fn compile_lut<F, I, O>(input: &I, output: &O, table: &[usize]) -> Result<AffineMap<F>>
 where
     F: BlockScalar,

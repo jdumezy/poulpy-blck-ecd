@@ -1,3 +1,8 @@
+//! Algebraic descriptions of finite-alphabet block encodings and lookup tables.
+//!
+//! Encodings map symbols to short complex vectors, while affine and tensor maps compile
+//! univariate and multivariate tables into forms consumed by the CKKS circuit plans.
+
 mod affine;
 mod character;
 mod coefficient;

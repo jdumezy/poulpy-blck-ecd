@@ -1,3 +1,8 @@
+//! Host-side layouts for placing encoded blocks in CKKS slots.
+//!
+//! Packed layouts place every coordinate in one ciphertext, whereas split layouts use one
+//! ciphertext per coordinate; both provide matching encode and nearest-codeword decode helpers.
+
 mod packed;
 mod split;
 

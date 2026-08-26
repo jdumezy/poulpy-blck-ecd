@@ -49,6 +49,7 @@ struct SplitRow {
     bias: SplitBias,
 }
 
+/// Prepared split-ciphertext circuit for an affine coordinate map.
 pub struct SplitAffinePlan<BE: Backend> {
     input_width: usize,
     rows: Vec<SplitRow>,
@@ -57,6 +58,7 @@ pub struct SplitAffinePlan<BE: Backend> {
 }
 
 impl<BE: Backend> SplitAffinePlan<BE> {
+    /// Compiles an affine map into exact shifts and encoded scalar multiplications.
     pub fn compile<F>(
         module: &Module<BE>,
         map: &AffineMap<F>,
@@ -118,10 +120,12 @@ impl<BE: Backend> SplitAffinePlan<BE> {
         })
     }
 
+    /// Returns the number of input coordinate ciphertexts consumed by the plan.
     pub fn input_width(&self) -> usize {
         self.input_width
     }
 
+    /// Returns the number of output coordinate ciphertexts produced by the plan.
     pub fn output_width(&self) -> usize {
         self.rows.len()
     }
@@ -134,7 +138,9 @@ impl<BE: Backend> SplitAffinePlan<BE> {
     }
 }
 
+/// Split affine-transform operations implemented by compatible Poulpy modules.
 pub trait CKKSSplitAffineOps<BE: Backend> {
+    /// Returns the scratch-memory requirement for a split affine evaluation.
     fn ckks_split_affine_tmp_bytes<R, A>(
         &self,
         plan: &SplitAffinePlan<BE>,
@@ -145,6 +151,7 @@ pub trait CKKSSplitAffineOps<BE: Backend> {
         R: CKKSCtBounds,
         A: CKKSCtBounds;
 
+    /// Evaluates a split affine plan into output coordinate ciphertexts.
     fn ckks_split_affine_into<Dst, Src>(
         &self,
         outputs: &mut [Dst],

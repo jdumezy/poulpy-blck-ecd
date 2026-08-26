@@ -34,6 +34,7 @@ use crate::{
     },
 };
 
+/// Tests character encodings, native products, conjugation, and cleaning.
 pub fn test_characters<BE, F, E>(
     params: CKKSTestParams,
     module: &Module<BE>,
@@ -283,6 +284,7 @@ pub fn test_characters<BE, F, E>(
     );
 }
 
+/// Tests zeta and indicator encodings with native and compiled operations.
 pub fn test_zeta_and_indicator<BE, F, E>(
     params: CKKSTestParams,
     module: &Module<BE>,
@@ -497,6 +499,7 @@ pub fn test_zeta_and_indicator<BE, F, E>(
     }
 }
 
+/// Tests direct and baby-step/giant-step packed transform schedules.
 pub fn test_transform_strategies<BE, F, E>(
     params: CKKSTestParams,
     module: &Module<BE>,
@@ -643,6 +646,7 @@ pub fn test_transform_strategies<BE, F, E>(
     );
 }
 
+/// Tests packed and split multivariate tables with unequal input alphabets.
 pub fn test_asymmetric_multivariate<BE, F, E>(
     params: CKKSTestParams,
     module: &Module<BE>,

@@ -25,6 +25,7 @@ use crate::{
     scalar::BlockScalar,
 };
 
+/// Prepared packed-ciphertext circuit for cleaning and optionally changing an encoding.
 pub struct PackedCleaningPlan<BE: Backend> {
     mode: CleaningMode,
     clean_width: usize,
@@ -36,6 +37,7 @@ pub struct PackedCleaningPlan<BE: Backend> {
 
 impl<BE: Backend> PackedCleaningPlan<BE> {
     #[allow(clippy::too_many_arguments)]
+    /// Compiles pre- and post-transforms around the encoding's cleaning polynomial.
     pub fn compile<F>(
         module: &Module<BE>,
         layout: PackedLayout,
@@ -108,22 +110,27 @@ impl<BE: Backend> PackedCleaningPlan<BE> {
         })
     }
 
+    /// Returns the cubic projection selected by the input encoding.
     pub fn cleaning_mode(&self) -> CleaningMode {
         self.mode
     }
 
+    /// Returns the number of coordinates processed by the cleaning stage.
     pub fn cleaning_width(&self) -> usize {
         self.clean_width
     }
 
+    /// Returns the number of output block coordinates produced by the plan.
     pub fn output_width(&self) -> usize {
         self.output_width
     }
 
+    /// Returns the Galois elements required by the pre- and post-transforms.
     pub fn galois_elements(&self) -> &[i64] {
         &self.galois_elements
     }
 
+    /// Allocates reusable intermediate ciphertexts and affine workspaces.
     pub fn alloc_workspace<C>(&self, module: &Module<BE>, input: &C) -> PackedCleaningWorkspace<BE>
     where
         Module<BE>: CKKSModuleAlloc<BE> + CnvPVecAlloc<BE>,
@@ -150,6 +157,7 @@ impl<BE: Backend> PackedCleaningPlan<BE> {
     }
 }
 
+/// Reusable storage for evaluating a packed cleaning plan.
 pub struct PackedCleaningWorkspace<BE: Backend> {
     pre: Option<PackedAffineWorkspace<BE>>,
     post: Option<PackedAffineWorkspace<BE>>,
@@ -157,6 +165,7 @@ pub struct PackedCleaningWorkspace<BE: Backend> {
     cleaned: Option<CKKSCiphertextOwned<BE>>,
 }
 
+/// Prepared split-ciphertext circuit for cleaning and optionally changing an encoding.
 pub struct SplitCleaningPlan<BE: Backend> {
     mode: CleaningMode,
     clean_width: usize,
@@ -166,6 +175,7 @@ pub struct SplitCleaningPlan<BE: Backend> {
 }
 
 impl<BE: Backend> SplitCleaningPlan<BE> {
+    /// Compiles split pre- and post-transforms around the cleaning polynomial.
     pub fn compile<F>(
         module: &Module<BE>,
         input: &dyn BlockEncoding<F>,
@@ -196,18 +206,22 @@ impl<BE: Backend> SplitCleaningPlan<BE> {
         })
     }
 
+    /// Returns the cubic projection selected by the input encoding.
     pub fn cleaning_mode(&self) -> CleaningMode {
         self.mode
     }
 
+    /// Returns the number of coordinates processed by the cleaning stage.
     pub fn cleaning_width(&self) -> usize {
         self.clean_width
     }
 
+    /// Returns the number of output coordinate ciphertexts produced by the plan.
     pub fn output_width(&self) -> usize {
         self.output_width
     }
 
+    /// Allocates reusable intermediate coordinate ciphertexts.
     pub fn alloc_workspace<C>(&self, module: &Module<BE>, input: &C) -> SplitCleaningWorkspace<BE>
     where
         Module<BE>: CKKSModuleAlloc<BE>,
@@ -228,12 +242,15 @@ impl<BE: Backend> SplitCleaningPlan<BE> {
     }
 }
 
+/// Reusable storage for evaluating a split cleaning plan.
 pub struct SplitCleaningWorkspace<BE: Backend> {
     stage: Option<Vec<CKKSCiphertextOwned<BE>>>,
     cleaned: Option<Vec<CKKSCiphertextOwned<BE>>>,
 }
 
+/// Planned cleaning-circuit operations implemented by compatible Poulpy modules.
 pub trait CKKSCleaningCircuitOps<BE: Backend> {
+    /// Returns the scratch-memory requirement for a packed cleaning circuit.
     fn ckks_packed_cleaning_tmp_bytes<C, K, T>(
         &self,
         input: &C,
@@ -247,6 +264,7 @@ pub trait CKKSCleaningCircuitOps<BE: Backend> {
         T: GGLWEInfos;
 
     #[allow(clippy::too_many_arguments)]
+    /// Evaluates a packed cleaning plan into one output ciphertext.
     fn ckks_packed_cleaning_into<Dst, Src, H, K, T>(
         &self,
         output: &mut Dst,
@@ -264,6 +282,7 @@ pub trait CKKSCleaningCircuitOps<BE: Backend> {
         H: GLWEAutomorphismKeyHelper<K, BE>,
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>;
 
+    /// Evaluates a split cleaning plan into output coordinate ciphertexts.
     fn ckks_split_cleaning_into<Dst, Src, T>(
         &self,
         outputs: &mut [Dst],
@@ -278,6 +297,7 @@ pub trait CKKSCleaningCircuitOps<BE: Backend> {
         Src: GLWEToBackendRef<BE> + CKKSCtBounds,
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>;
 
+    /// Returns the scratch-memory requirement for a split cleaning circuit.
     fn ckks_split_cleaning_tmp_bytes<C, T>(
         &self,
         input: &C,

@@ -32,6 +32,7 @@ enum PackedLinear<BE: Backend> {
     Transform(LinearTransformationPrepared<BE>),
 }
 
+/// Prepared packed-ciphertext circuit for an affine coordinate map.
 pub struct PackedAffinePlan<BE: Backend> {
     layout: PackedLayout,
     input_width: usize,
@@ -44,6 +45,7 @@ pub struct PackedAffinePlan<BE: Backend> {
 
 impl<BE: Backend> PackedAffinePlan<BE> {
     #[allow(clippy::too_many_arguments)]
+    /// Compiles an affine map for a backend, layout, scale, and transform strategy.
     pub fn compile<F>(
         module: &Module<BE>,
         layout: PackedLayout,
@@ -123,18 +125,22 @@ impl<BE: Backend> PackedAffinePlan<BE> {
         })
     }
 
+    /// Returns the packed slot layout used by this plan.
     pub fn layout(&self) -> PackedLayout {
         self.layout
     }
 
+    /// Returns the number of input block coordinates consumed by the plan.
     pub fn input_width(&self) -> usize {
         self.input_width
     }
 
+    /// Returns the number of output block coordinates produced by the plan.
     pub fn output_width(&self) -> usize {
         self.output_width
     }
 
+    /// Returns the Galois elements required by the packed linear transform.
     pub fn galois_elements(&self) -> &[i64] {
         &self.galois_elements
     }
@@ -149,6 +155,7 @@ impl<BE: Backend> PackedAffinePlan<BE> {
         self.output_drop
     }
 
+    /// Allocates reusable baby-step storage compatible with an input ciphertext.
     pub fn alloc_workspace<C>(&self, module: &Module<BE>, input: &C) -> PackedAffineWorkspace<BE>
     where
         Module<BE>: CnvPVecAlloc<BE>,
@@ -166,11 +173,14 @@ impl<BE: Backend> PackedAffinePlan<BE> {
     }
 }
 
+/// Reusable storage for evaluating a packed affine plan.
 pub struct PackedAffineWorkspace<BE: Backend> {
     babies: Option<LinearTransformationBabySteps<BE>>,
 }
 
+/// Packed affine-transform operations implemented by compatible Poulpy modules.
 pub trait CKKSPackedAffineOps<BE: Backend> {
+    /// Returns the scratch-memory requirement for a packed affine evaluation.
     fn ckks_packed_affine_tmp_bytes<C, K>(
         &self,
         plan: &PackedAffinePlan<BE>,
@@ -181,6 +191,7 @@ pub trait CKKSPackedAffineOps<BE: Backend> {
         C: CKKSCtBounds,
         K: GGLWEInfos;
 
+    /// Evaluates a packed affine plan into an output ciphertext.
     fn ckks_packed_affine_into<Dst, Src, H, K>(
         &self,
         dst: &mut Dst,

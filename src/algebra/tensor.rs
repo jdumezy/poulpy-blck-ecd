@@ -4,6 +4,7 @@ use super::{AffineMap, BlockEncoding, Coefficient};
 use crate::scalar::BlockScalar;
 
 #[derive(Clone, Debug, PartialEq)]
+/// Affine map over the nonconstant tensor-product features of several encodings.
 pub struct TensorMap<F> {
     input_sizes: Vec<usize>,
     rows: usize,
@@ -12,6 +13,7 @@ pub struct TensorMap<F> {
 }
 
 impl<F: BlockScalar> TensorMap<F> {
+    /// Constructs a tensor map after validating its dimensions and storage.
     pub fn new(
         input_sizes: Vec<usize>,
         rows: usize,
@@ -49,30 +51,37 @@ impl<F: BlockScalar> TensorMap<F> {
         })
     }
 
+    /// Returns the alphabet size of each input variable.
     pub fn input_sizes(&self) -> &[usize] {
         &self.input_sizes
     }
 
+    /// Returns the number of nonconstant tensor-product features.
     pub fn feature_width(&self) -> usize {
         self.input_sizes.iter().product::<usize>() - 1
     }
 
+    /// Returns the encoded coordinate width of each input variable.
     pub fn input_widths(&self) -> impl ExactSizeIterator<Item = usize> + '_ {
         self.input_sizes.iter().map(|size| size - 1)
     }
 
+    /// Returns the number of output coordinates.
     pub fn rows(&self) -> usize {
         self.rows
     }
 
+    /// Returns the row-major feature matrix.
     pub fn matrix(&self) -> &[Coefficient<F>] {
         &self.matrix
     }
 
+    /// Returns the output bias vector.
     pub fn bias(&self) -> &[Coefficient<F>] {
         &self.bias
     }
 
+    /// Clones this tensor map into a conventional affine-map representation.
     pub fn as_affine(&self) -> AffineMap<F> {
         AffineMap::new(
             self.rows,
@@ -85,6 +94,7 @@ impl<F: BlockScalar> TensorMap<F> {
 }
 
 #[allow(clippy::needless_range_loop)]
+/// Compiles a multivariate coordinate table into a tensor-product affine map.
 pub fn compile_multivariate_coordinates<F: BlockScalar>(
     inputs: &[&dyn BlockEncoding<F>],
     output_values: &[Vec<Coefficient<F>>],
@@ -146,6 +156,7 @@ pub fn compile_multivariate_coordinates<F: BlockScalar>(
     TensorMap::new(input_sizes, rows, matrix, bias)
 }
 
+/// Compiles a multivariate symbol lookup table into a tensor-product affine map.
 pub fn compile_multivariate_lut<F, O>(
     inputs: &[&dyn BlockEncoding<F>],
     output: &O,

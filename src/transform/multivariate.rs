@@ -32,6 +32,7 @@ use crate::{
     scalar::BlockScalar,
 };
 
+/// Prepared packed-ciphertext circuit for a multivariate tensor map.
 pub struct PackedMultivariatePlan<BE: Backend> {
     layout: PackedLayout,
     input_widths: Vec<usize>,
@@ -45,6 +46,7 @@ pub struct PackedMultivariatePlan<BE: Backend> {
 
 impl<BE: Backend> PackedMultivariatePlan<BE> {
     #[allow(clippy::too_many_arguments)]
+    /// Compiles input alignment, tensor products, and output projection for packed evaluation.
     pub fn compile<F>(
         module: &Module<BE>,
         layout: PackedLayout,
@@ -150,22 +152,27 @@ impl<BE: Backend> PackedMultivariatePlan<BE> {
         })
     }
 
+    /// Returns the packed slot layout used by this plan.
     pub fn layout(&self) -> PackedLayout {
         self.layout
     }
 
+    /// Returns the encoded coordinate width expected for each input variable.
     pub fn input_widths(&self) -> &[usize] {
         &self.input_widths
     }
 
+    /// Returns the number of output block coordinates produced by the plan.
     pub fn output_width(&self) -> usize {
         self.output.output_width()
     }
 
+    /// Returns all Galois elements required by alignment and output transforms.
     pub fn galois_elements(&self) -> &[i64] {
         &self.galois_elements
     }
 
+    /// Allocates reusable intermediate ciphertexts and affine workspaces.
     pub fn alloc_workspace<C>(
         &self,
         module: &Module<BE>,
@@ -221,6 +228,7 @@ impl<BE: Backend> PackedMultivariatePlan<BE> {
     }
 }
 
+/// Reusable storage for evaluating a packed multivariate plan.
 pub struct PackedMultivariateWorkspace<BE: Backend> {
     alignment: Vec<PackedAffineWorkspace<BE>>,
     layers: Vec<Vec<CKKSCiphertextOwned<BE>>>,
@@ -235,6 +243,7 @@ enum FeatureRecipe {
     Product { lhs: usize, rhs: usize },
 }
 
+/// Prepared split-ciphertext circuit for a multivariate tensor map.
 pub struct SplitMultivariatePlan<BE: Backend> {
     input_widths: Vec<usize>,
     recipes: Vec<FeatureRecipe>,
@@ -242,6 +251,7 @@ pub struct SplitMultivariatePlan<BE: Backend> {
 }
 
 impl<BE: Backend> SplitMultivariatePlan<BE> {
+    /// Compiles tensor-feature recipes and the final split affine projection.
     pub fn compile<F>(
         module: &Module<BE>,
         tensor: &TensorMap<F>,
@@ -266,20 +276,25 @@ impl<BE: Backend> SplitMultivariatePlan<BE> {
         })
     }
 
+    /// Returns the encoded coordinate width expected for each input variable.
     pub fn input_widths(&self) -> &[usize] {
         &self.input_widths
     }
 
+    /// Returns the number of nonconstant tensor features built by the plan.
     pub fn feature_width(&self) -> usize {
         self.recipes.len()
     }
 
+    /// Returns the number of output coordinate ciphertexts produced by the plan.
     pub fn output_width(&self) -> usize {
         self.output.output_width()
     }
 }
 
+/// Multivariate packed and split operations implemented by compatible Poulpy modules.
 pub trait CKKSMultivariateOps<BE: Backend> {
+    /// Returns the scratch-memory requirement for a packed multivariate evaluation.
     fn ckks_packed_multivariate_tmp_bytes<C, K, T>(
         &self,
         plan: &PackedMultivariatePlan<BE>,
@@ -293,6 +308,7 @@ pub trait CKKSMultivariateOps<BE: Backend> {
         T: GGLWEInfos;
 
     #[allow(clippy::too_many_arguments)]
+    /// Evaluates a packed multivariate plan into one output ciphertext.
     fn ckks_packed_multivariate_into<Dst, Src, H, K, T>(
         &self,
         output: &mut Dst,
@@ -310,6 +326,7 @@ pub trait CKKSMultivariateOps<BE: Backend> {
         H: GLWEAutomorphismKeyHelper<K, BE>,
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>;
 
+    /// Returns the scratch-memory requirement for a split multivariate evaluation.
     fn ckks_split_multivariate_tmp_bytes<R, A, T>(
         &self,
         plan: &SplitMultivariatePlan<BE>,
@@ -322,6 +339,7 @@ pub trait CKKSMultivariateOps<BE: Backend> {
         A: CKKSCtBounds,
         T: GGLWEInfos;
 
+    /// Evaluates a split multivariate plan into output coordinate ciphertexts.
     fn ckks_split_multivariate_into<Dst, Src, T>(
         &self,
         outputs: &mut [Dst],

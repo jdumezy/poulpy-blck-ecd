@@ -5,12 +5,23 @@ use num_complex::Complex;
 use crate::scalar::BlockScalar;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+/// Exact dyadic or approximate complex coefficient used by compiled maps.
 pub enum Coefficient<F> {
-    Exact { re: i128, im: i128, log_den: u32 },
+    /// Gaussian integer numerator divided by a power of two.
+    Exact {
+        /// Real numerator.
+        re: i128,
+        /// Imaginary numerator.
+        im: i128,
+        /// Base-two logarithm of the denominator.
+        log_den: u32,
+    },
+    /// Approximate complex coefficient.
     Approx(Complex<F>),
 }
 
 impl<F: BlockScalar> Coefficient<F> {
+    /// Constructs and normalizes an exact Gaussian dyadic coefficient.
     pub fn exact(re: i128, im: i128, log_den: u32) -> Self {
         let mut re = re;
         let mut im = im;
@@ -30,30 +41,37 @@ impl<F: BlockScalar> Coefficient<F> {
         Self::Exact { re, im, log_den }
     }
 
+    /// Constructs an exact real integer coefficient.
     pub fn integer(value: i128) -> Self {
         Self::exact(value, 0, 0)
     }
 
+    /// Constructs an exact Gaussian integer coefficient.
     pub fn gaussian_integer(re: i128, im: i128) -> Self {
         Self::exact(re, im, 0)
     }
 
+    /// Constructs an approximate complex coefficient.
     pub fn approximate(re: F, im: F) -> Self {
         Self::Approx(Complex::new(re, im))
     }
 
+    /// Returns the exact zero coefficient.
     pub fn zero() -> Self {
         Self::integer(0)
     }
 
+    /// Returns the exact unit coefficient.
     pub fn one() -> Self {
         Self::integer(1)
     }
 
+    /// Reports whether this coefficient retains an exact representation.
     pub fn is_exact(&self) -> bool {
         matches!(self, Self::Exact { .. })
     }
 
+    /// Returns the exact numerator and denominator parts when available.
     pub fn exact_parts(&self) -> Option<(i128, i128, u32)> {
         match *self {
             Self::Exact { re, im, log_den } => Some((re, im, log_den)),
@@ -61,6 +79,7 @@ impl<F: BlockScalar> Coefficient<F> {
         }
     }
 
+    /// Converts this coefficient to its complex floating-point value.
     pub fn value(self) -> Complex<F> {
         match self {
             Self::Approx(value) => value,
@@ -76,6 +95,7 @@ impl<F: BlockScalar> Coefficient<F> {
         }
     }
 
+    /// Returns the complex conjugate of this coefficient.
     pub fn conjugate(self) -> Self {
         match self {
             Self::Exact { re, im, log_den } => Self::exact(re, -im, log_den),
@@ -83,6 +103,7 @@ impl<F: BlockScalar> Coefficient<F> {
         }
     }
 
+    /// Multiplies this coefficient by an integer while preserving exactness when possible.
     pub fn scale_integer(self, scalar: i128) -> Self {
         match self {
             Self::Exact { re, im, log_den } => {
@@ -101,6 +122,7 @@ impl<F: BlockScalar> Coefficient<F> {
         }
     }
 
+    /// Divides this coefficient by a positive integer, preserving exactness when possible.
     pub fn div_usize(self, divisor: usize) -> Self {
         assert_ne!(divisor, 0, "coefficient division by zero");
         match self {
@@ -135,6 +157,7 @@ impl<F: BlockScalar> Coefficient<F> {
         ))
     }
 
+    /// Compares two coefficients within an absolute complex-norm tolerance.
     pub fn approx_eq(self, rhs: Self, tolerance: F) -> bool {
         (self.value() - rhs.value()).norm() <= tolerance
     }

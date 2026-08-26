@@ -11,7 +11,9 @@ use poulpy_core::layouts::{
 };
 use poulpy_hal::layouts::{Backend, Module, ScratchArena};
 
+/// Native block products, extrema, and conjugation operations for supported encodings.
 pub trait CKKSBlockMulOps<BE: Backend> {
+    /// Returns the scratch-memory requirement for a packed native product.
     fn ckks_packed_native_mul_tmp_bytes<R, A, B, T>(
         &self,
         output: &R,
@@ -25,6 +27,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         B: CKKSCtBounds,
         T: GGLWEInfos;
 
+    /// Multiplies two packed encoded values coordinatewise.
     fn ckks_packed_native_mul_into<Dst, A, B, T>(
         &self,
         output: &mut Dst,
@@ -39,6 +42,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         B: GLWEToBackendRef<BE> + CKKSCtBounds,
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>;
 
+    /// Returns the scratch-memory requirement for a split native product.
     fn ckks_split_native_mul_tmp_bytes<R, A, B, T>(
         &self,
         output: &R,
@@ -52,6 +56,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         B: CKKSCtBounds,
         T: GGLWEInfos;
 
+    /// Multiplies two split encoded values coordinatewise.
     fn ckks_split_native_mul_into<Dst, A, B, T>(
         &self,
         outputs: &mut [Dst],
@@ -66,6 +71,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         B: GLWEToBackendRef<BE> + CKKSCtBounds,
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>;
 
+    /// Evaluates the coordinatewise product used by packed indicator equality.
     fn ckks_packed_equality_gate_into<Dst, A, B, T>(
         &self,
         output: &mut Dst,
@@ -83,6 +89,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         self.ckks_packed_native_mul_into(output, lhs, rhs, tensor_key, scratch)
     }
 
+    /// Evaluates the coordinatewise product used by split indicator equality.
     fn ckks_split_equality_gate_into<Dst, A, B, T>(
         &self,
         outputs: &mut [Dst],
@@ -100,6 +107,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         self.ckks_split_native_mul_into(outputs, lhs, rhs, tensor_key, scratch)
     }
 
+    /// Returns the scratch-memory requirement for a native maximum operation.
     fn ckks_native_max_tmp_bytes<R, A, B, T>(
         &self,
         output: &R,
@@ -113,6 +121,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         B: CKKSCtBounds,
         T: GGLWEInfos;
 
+    /// Evaluates a native maximum on packed encoded values.
     fn ckks_packed_native_max_into<Dst, A, B, T>(
         &self,
         output: &mut Dst,
@@ -127,6 +136,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         B: GLWEToBackendRef<BE> + CKKSCtBounds,
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>;
 
+    /// Evaluates a native maximum on split encoded values.
     fn ckks_split_native_max_into<Dst, A, B, T>(
         &self,
         outputs: &mut [Dst],
@@ -141,11 +151,13 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         B: GLWEToBackendRef<BE> + CKKSCtBounds,
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>;
 
+    /// Returns the scratch-memory requirement for blockwise complex conjugation.
     fn ckks_block_conjugate_tmp_bytes<C, K>(&self, input: &C, key: &K) -> usize
     where
         C: CKKSCtBounds,
         K: GGLWEInfos;
 
+    /// Conjugates every encoded block in a packed ciphertext.
     fn ckks_packed_block_conjugate_into<Dst, Src, K>(
         &self,
         output: &mut Dst,
@@ -158,6 +170,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         Src: GLWEToBackendRef<BE> + CKKSCtBounds,
         K: CKKSAtkBounds<BE>;
 
+    /// Conjugates every coordinate ciphertext of a split encoding.
     fn ckks_split_block_conjugate_into<Dst, Src, K>(
         &self,
         outputs: &mut [Dst],
@@ -170,6 +183,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         Src: GLWEToBackendRef<BE> + CKKSCtBounds,
         K: CKKSAtkBounds<BE>;
 
+    /// Returns the scratch-memory requirement for a conjugated native product.
     fn ckks_conjugate_product_tmp_bytes<R, A, B, K, T>(
         &self,
         output: &R,
@@ -186,6 +200,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         T: GGLWEInfos;
 
     #[allow(clippy::too_many_arguments)]
+    /// Multiplies a packed encoded value by the blockwise conjugate of another.
     fn ckks_packed_conjugate_product_into<Dst, A, B, K, T>(
         &self,
         output: &mut Dst,
@@ -203,6 +218,7 @@ pub trait CKKSBlockMulOps<BE: Backend> {
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>;
 
     #[allow(clippy::too_many_arguments)]
+    /// Multiplies split encoded values after blockwise conjugating the right input.
     fn ckks_split_conjugate_product_into<Dst, A, B, K, T>(
         &self,
         outputs: &mut [Dst],

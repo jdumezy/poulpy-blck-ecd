@@ -1,7 +1,15 @@
+//! Backend-generic tests for block encodings and their CKKS circuits.
+//!
+//! Downstream backends can instantiate the exported suite with their module, scalar, encoder,
+//! and compact test parameters to exercise the same behavior as the built-in backends.
+
+/// Encoding, transform, and multivariate backend checks.
 pub mod coverage;
+/// Packed and split layout circuit checks.
 pub mod layouts;
 
 #[macro_export]
+/// Instantiates the complete block-encoding conformance suite for a Poulpy backend.
 macro_rules! ckks_block_backend_test_suite {
     (
         mod $modname:ident,

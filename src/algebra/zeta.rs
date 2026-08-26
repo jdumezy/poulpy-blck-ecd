@@ -6,6 +6,7 @@ use super::{
 use crate::scalar::BlockScalar;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Lower-zeta encoding whose native product is the meet operation.
 pub struct MeetZeta {
     poset: FinitePoset,
     bottom: usize,
@@ -14,6 +15,7 @@ pub struct MeetZeta {
 }
 
 impl MeetZeta {
+    /// Constructs a meet-zeta encoding for a poset with a bottom and all meets.
     pub fn new(poset: FinitePoset) -> Result<Self> {
         let bottom = poset
             .bottom()
@@ -28,19 +30,23 @@ impl MeetZeta {
         })
     }
 
+    /// Constructs a meet-zeta encoding of a Boolean lattice.
     pub fn boolean(bits: usize) -> Result<Self> {
         Self::new(FinitePoset::boolean_lattice(bits)?)
     }
 
+    /// Constructs a meet-zeta encoding of rooted-tree ancestry.
     pub fn ancestor(parents: &[Option<usize>]) -> Result<Self> {
         Self::new(FinitePoset::rooted_tree(parents)?)
     }
 
+    /// Constructs a divisor meet-zeta encoding and its symbol-to-divisor mapping.
     pub fn divisors(modulus: usize) -> Result<(Self, Vec<usize>)> {
         let (poset, divisors) = FinitePoset::divisor_lattice(modulus)?;
         Ok((Self::new(poset)?, divisors))
     }
 
+    /// Returns the underlying finite poset.
     pub fn poset(&self) -> &FinitePoset {
         &self.poset
     }
@@ -110,6 +116,7 @@ impl<F: BlockScalar> BlockEncoding<F> for MeetZeta {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Upper-zeta encoding whose native product is the join operation.
 pub struct JoinZeta {
     poset: FinitePoset,
     top: usize,
@@ -118,6 +125,7 @@ pub struct JoinZeta {
 }
 
 impl JoinZeta {
+    /// Constructs a join-zeta encoding for a poset with a top and all joins.
     pub fn new(poset: FinitePoset) -> Result<Self> {
         let top = poset
             .top()
@@ -132,15 +140,18 @@ impl JoinZeta {
         })
     }
 
+    /// Constructs a join-zeta encoding of a Boolean lattice.
     pub fn boolean(bits: usize) -> Result<Self> {
         Self::new(FinitePoset::boolean_lattice(bits)?)
     }
 
+    /// Constructs a divisor join-zeta encoding and its symbol-to-divisor mapping.
     pub fn divisors(modulus: usize) -> Result<(Self, Vec<usize>)> {
         let (poset, divisors) = FinitePoset::divisor_lattice(modulus)?;
         Ok((Self::new(poset)?, divisors))
     }
 
+    /// Returns the underlying finite poset.
     pub fn poset(&self) -> &FinitePoset {
         &self.poset
     }

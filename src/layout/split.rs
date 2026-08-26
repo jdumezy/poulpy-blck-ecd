@@ -5,11 +5,13 @@ use super::{codewords, nearest};
 use crate::{algebra::BlockEncoding, scalar::BlockScalar};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Placement of each block coordinate in its own CKKS ciphertext.
 pub struct SplitLayout {
     slots: usize,
 }
 
 impl SplitLayout {
+    /// Constructs a split layout for the requested slot count.
     pub fn new(slots: usize) -> Result<Self> {
         ensure!(
             slots.is_power_of_two(),
@@ -18,10 +20,12 @@ impl SplitLayout {
         Ok(Self { slots })
     }
 
+    /// Returns the number of symbols stored across each coordinate ciphertext.
     pub fn slots(&self) -> usize {
         self.slots
     }
 
+    /// Encodes symbols into newly allocated coordinate-major slot vectors.
     pub fn encode_slots<F, E>(&self, encoding: &E, values: &[usize]) -> Result<SplitSlots<F>>
     where
         F: BlockScalar,
@@ -41,6 +45,7 @@ impl SplitLayout {
         Ok(slots)
     }
 
+    /// Encodes symbols into existing coordinate-major slot vectors.
     pub fn encode_slots_into<F, E>(
         &self,
         encoding: &E,
@@ -84,6 +89,7 @@ impl SplitLayout {
         Ok(())
     }
 
+    /// Decodes the requested number of symbols by nearest codeword.
     pub fn decode_slots<F, E>(
         &self,
         encoding: &E,
@@ -122,7 +128,10 @@ impl SplitLayout {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// Real and imaginary coordinate-major slot vectors for a split layout.
 pub struct SplitSlots<F> {
+    /// Real slot components indexed by coordinate and then slot.
     pub re: Vec<Vec<F>>,
+    /// Imaginary slot components indexed by coordinate and then slot.
     pub im: Vec<Vec<F>>,
 }

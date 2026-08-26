@@ -4,12 +4,14 @@ use super::{AffineFunction, BlockEncoding, CleaningMode, Coefficient, NativeOper
 use crate::scalar::BlockScalar;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// One-hot encoding with one redundant coordinate omitted.
 pub struct Indicator {
     size: usize,
     omitted: usize,
 }
 
 impl Indicator {
+    /// Constructs an indicator encoding and selects the omitted symbol.
     pub fn new(size: usize, omitted: usize) -> Result<Self> {
         ensure!(
             size >= 2,
@@ -22,6 +24,7 @@ impl Indicator {
         Ok(Self { size, omitted })
     }
 
+    /// Returns the symbol whose indicator coordinate is omitted.
     pub fn omitted(&self) -> usize {
         self.omitted
     }
@@ -76,11 +79,13 @@ impl<F: BlockScalar> BlockEncoding<F> for Indicator {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Cumulative binary encoding of a totally ordered alphabet.
 pub struct Thermometer {
     size: usize,
 }
 
 impl Thermometer {
+    /// Constructs a thermometer encoding for the requested alphabet size.
     pub fn new(size: usize) -> Result<Self> {
         ensure!(
             size >= 2,

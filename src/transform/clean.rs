@@ -15,13 +15,16 @@ use poulpy_hal::layouts::{Backend, Module, ScratchArena};
 
 use crate::algebra::CleaningMode;
 
+/// Low-level cubic cleaning operations implemented by compatible Poulpy modules.
 pub trait CKKSBlockCleaningOps<BE: Backend> {
+    /// Returns the scratch-memory requirement for cleaning one ciphertext.
     fn ckks_clean_tmp_bytes<R, A, T>(&self, output: &R, input: &A, tensor_key: &T) -> usize
     where
         R: CKKSCtBounds,
         A: CKKSCtBounds,
         T: GGLWEInfos;
 
+    /// Applies a binary or sign cleaning polynomial to one ciphertext.
     fn ckks_clean_into<Dst, Src, T>(
         &self,
         output: &mut Dst,
@@ -35,6 +38,7 @@ pub trait CKKSBlockCleaningOps<BE: Backend> {
         Src: GLWEToBackendRef<BE> + CKKSCtBounds,
         T: GGLWEInfos + GLWETensorKeyPreparedToBackendRef<BE> + GGLWEPreparedToBackendRef<BE>;
 
+    /// Applies the same cleaning polynomial to split coordinate ciphertexts.
     fn ckks_clean_split_into<Dst, Src, T>(
         &self,
         outputs: &mut [Dst],
