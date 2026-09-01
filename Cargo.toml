@@ -5,6 +5,9 @@ edition = "2024"
 license = "Apache-2.0"
 description = "Block encodings for discrete CKKS over Poulpy"
 readme = "README.md"
+repository = "https://github.com/jdumezy/poulpy-blck-ecd"
+documentation = "https://docs.rs/poulpy-blck-ecd"
+exclude = [".github/"]
 autobenches = false
 
 [features]

@@ -3,6 +3,16 @@
 `poulpy-blck-ecd` implements block encodings for finite alphabets in discrete CKKS from [the original paper](https://eprint.iacr.org/2026/1200) over [`poulpy-ckks`](https://github.com/poulpy-fhe/poulpy).
 It compiles univariate and multivariate lookup tables into reusable affine and nonlinear circuits, with packed and split ciphertext layouts for the Poulpy backends.
 
+## Requirements
+
+`poulpy-blck-ecd` currently requires nightly Rust because Poulpy 0.8.2 uses unstable Rust features.
+This repository pins `nightly-2026-05-14`; applications using the crate must select that toolchain, or a compatible newer nightly, in their own workspace.
+
+```sh
+rustup toolchain install nightly-2026-05-14
+cargo +nightly-2026-05-14 build
+```
+
 ## API
 
 - Character encodings: `Bru`, `Lbru`, and `WalshHadamard`.
@@ -42,6 +52,21 @@ Plans can be reused for ciphertexts with compatible CKKS parameters and layouts.
 `poulpy-blck-ecd` does not select CKKS security parameters or insert bootstrapping automatically.
 Applications must choose parameters for their security target, reserve enough modulus for each planned circuit, generate the required evaluation keys, and bootstrap explicitly when required.
 
+## Backend features
+
+| Feature | Target | Required CPU support |
+| --- | --- | --- |
+| `ref` | Any supported Poulpy target | None beyond the target baseline |
+| `avx` | `x86_64` | AVX2 and FMA |
+| `avx512` | `x86_64` | AVX-512F |
+| `ifma` | `x86_64` | AVX-512F, AVX-512 IFMA, and AVX-512VL |
+| `neon` | `aarch64` | NEON |
+| `all-x86-backends` | `x86_64` | All x86 requirements above |
+
+The accelerated features activate Poulpy's corresponding `enable-*` feature gates, which reject incompatible architectures or missing compile-time target features.
+Build x86 accelerated backends with suitable `RUSTFLAGS`, such as `-C target-cpu=native` on a compatible machine.
+Do not use Cargo's `--all-features` across architectures: it activates both `neon` and the x86-only backends; select `neon` or `all-x86-backends` for the target instead.
+
 ## Test
 
 Run the backend-independent algebra tests with:
@@ -69,6 +94,11 @@ RUSTFLAGS='-C target-cpu=native' cargo bench --features avx --bench block_avx
 RUSTFLAGS='-C target-cpu=native' cargo bench --features avx512 --bench block_avx512
 RUSTFLAGS='-C target-cpu=native' cargo bench --features ifma --bench block_ifma
 ```
+
+## Security
+
+This is research software and has not undergone an independent security audit.
+Treat its parameter selection, side-channel behavior, and integration into a complete cryptosystem as application responsibilities rather than production-hardening guarantees.
 
 ## Citation
 
